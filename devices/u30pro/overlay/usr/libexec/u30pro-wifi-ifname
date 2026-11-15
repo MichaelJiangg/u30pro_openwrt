@@ -1,0 +1,20 @@
+#!/usr/bin/ucode
+// Keep the shipped AP's kernel name consistent with its hardware event users.
+// Fill only the missing binding; preserve custom interface names and settings.
+import { cursor } from 'uci';
+
+let u = cursor();
+if (u.get('wireless', 'default_radio0') != 'wifi-iface' ||
+    u.get('wireless', 'default_radio0', 'device') != 'radio0' ||
+    u.get('wireless', 'default_radio0', 'mode') != 'ap' ||
+    length(u.get('wireless', 'default_radio0', 'ifname') || '')) exit(0);
+
+let occupied = false;
+u.foreach('wireless', 'wifi-iface', s => {
+    if (s['.name'] != 'default_radio0' && s.ifname == 'wlan0') occupied = true;
+});
+if (occupied) die('Cannot bind the default AP: wlan0 is already assigned\n');
+if (length(u.changes('wireless') || {}))
+    die('Resolve unsaved wireless changes before assigning the AP interface\n');
+u.set('wireless', 'default_radio0', 'ifname', 'wlan0');
+if (!u.commit('wireless')) die('Cannot save the default AP interface binding\n');

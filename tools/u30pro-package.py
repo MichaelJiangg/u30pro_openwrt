@@ -413,6 +413,7 @@ def finish():
     shutil.copyfile(LAYOUT['busybox'], bb); bb.chmod(0o755)
     applets = target('/target/opt/mu300/bin/busybox --list').splitlines()
     busybox_aliases(ROOT, applets)
+    runpy.run_path(str(TOP/'tools/stage-ntp.py'))['stage'](ROOT)
     etc = ROOT / 'etc/mu300'; etc.mkdir(exist_ok=True)
     if (etc/'model').read_text().strip()!=MODEL['id']:
         raise ValueError('Prepared root product differs; run sources for the selected profile first')

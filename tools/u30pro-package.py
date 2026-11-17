@@ -43,7 +43,8 @@ PACKAGES = ('luci', 'luci-i18n-base-zh-cn', 'luci-i18n-firewall-zh-cn',
             'rpcd-mod-ucode', 'ucode-mod-fs', 'ucode-mod-uci', 'ucode-mod-ubus',
             'ucode-mod-uloop', 'ucode-mod-socket', 'ucode-mod-rtnl',
             'ucode-mod-nl80211', 'e2fsprogs', 'resize2fs', 'f2fs-tools',
-            'f2fsck', 'losetup', 'blkid', 'i2c-tools', 'gpiod-tools')
+            'f2fsck', 'losetup', 'blkid', 'i2c-tools', 'gpiod-tools',
+            'bluez-daemon', 'bluez-utils', 'bluez-utils-extra', 'dbus','python3-cryptography','python3-zeroconf')
 
 
 def digest(path):
@@ -147,7 +148,11 @@ def dependencies():
     owned()
     command = ['docker', 'run', '--rm', '--platform', 'linux/arm64',
                '-v', str(ROOT) + ':/target', '--entrypoint', '/usr/bin/apk',
-               ROOT_IMAGE, '--root', '/target', '--timeout', '60']
+               ROOT_IMAGE, '--root', '/target', '--timeout', '60',
+               '--repositories-file', '/etc/apk/repositories.d/distfeeds.list']
+    # Build base dependencies from this image's distribution feeds. A retained
+    # app feed can publish same-named kmods for another native ABI; it must not
+    # replace dependencies selected here. Preserve all runtime feed settings.
     subprocess.run(command + ['update'], check=True)
     subprocess.run(command + ['add', '--scripts=no', '--commit-hooks=no', *PACKAGES], check=True)
     # Materialize only package user declarations; never start target services.
@@ -414,6 +419,7 @@ def finish():
     applets = target('/target/opt/mu300/bin/busybox --list').splitlines()
     busybox_aliases(ROOT, applets)
     runpy.run_path(str(TOP/'tools/stage-ntp.py'))['stage'](ROOT)
+    runpy.run_path(str(TOP/'tools/stage-bluetooth.py'))['stage'](ROOT, 'u30pro-aic-uart',decoder_artifacts=LAYOUT['bluetooth_decoder'])
     etc = ROOT / 'etc/mu300'; etc.mkdir(exist_ok=True)
     if (etc/'model').read_text().strip()!=MODEL['id']:
         raise ValueError('Prepared root product differs; run sources for the selected profile first')
@@ -439,7 +445,8 @@ def finish():
         'mu300-atd','mu300-smsd','mu300-network-recovery','mu300-accounts','mu300-user-packages','ttyd',
         'mu300-ndp','mu300-charge','u30pro-battlog','u30pro-panel','mu300-post','unisoc-modem-ui',
         'unisoc-cpu','unisoc-cpu-cores','unisoc-network-performance','unisoc-sms-forward',
-        'unisoc-traffic','unisoc-ttl','u30pro-nfc','unisoc-ra-renew')
+        'unisoc-traffic','unisoc-ttl','u30pro-nfc','unisoc-ra-renew',
+        'dbus','bluetoothd','unisoc-bluetooth')
     rc = ROOT/'etc/rc.d'; rc.mkdir(exist_ok=True)
     if MODEL['id']=='f50pro':
         selected+=('f50pro-leds','f50pro-led-ready','f50pro-buttons')

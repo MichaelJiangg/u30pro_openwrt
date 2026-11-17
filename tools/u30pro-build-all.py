@@ -58,7 +58,7 @@ def main():
     required = ('docker', 'git', 'make', 'gcc', 'cmake', 'clang', 'ld.lld',
                 'llvm-ar', 'llvm-nm', 'llvm-objcopy', 'llvm-objdump', 'llvm-readelf',
                 'llvm-size', 'llvm-strip', 'zstd', 'xz', 'lz4', 'patch', 'cpio',
-                'openssl', 'depmod', 'readelf')
+                'openssl', 'depmod', 'readelf', 'aarch64-linux-gnu-g++', 'aarch64-linux-gnu-strip')
     missing = [name for name in required if shutil.which(name) is None]
     if missing:
         raise ValueError('Install the documented Linux build dependencies: '+', '.join(missing))
@@ -70,6 +70,7 @@ def main():
     load('u30pro-bootstrap.py')['provision'](layout, work)
     root_image(work, layout)
     call('sh', TOP/'openwrt/build-lpac.sh', layout['lpac_apks'])
+    call(sys.executable, TOP/'tools/ble-decoder/build.py', '--output', layout['bluetooth_decoder'])
     package = load('u30pro-package.py')
     if not package['STAGE'].exists():
         package['bootstrap']()

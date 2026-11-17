@@ -20,7 +20,7 @@ NATIVE = PROFILE / 'native'
 PIN = 'df3b44fce648105aa785204571f8ad6317a95959'
 FRAGMENTS = ('native-wifi', 'native-display', 'native-thermal', 'native-router',
              'native-idle', 'native-cpufreq', 'native-router2', 'native-kmods',
-             'native-containers')
+             'native-containers', 'native-bluetooth')
 REQUIRED = (
     'CONFIG_UNISOC_AIC8800=m', 'CONFIG_UNISOC_NV3002C_PANEL=y',
     'CONFIG_UNISOC_TLSC_TOUCH=y', 'CONFIG_U30PRO_SPRD_CPUFREQ_V2=m',
@@ -35,6 +35,8 @@ REQUIRED = (
     'CONFIG_NEW_LEDS=y', 'CONFIG_LEDS_CLASS=y', 'CONFIG_LEDS_GPIO=m',
     'CONFIG_F50PRO_LED_HANDOFF=m',
     'CONFIG_F50PRO_NFC_GPIO=m',
+    'CONFIG_BT=y', 'CONFIG_BT_HCIUART_H4=y', 'CONFIG_BT_RFCOMM_TTY=y',
+    'CONFIG_BT_HCIBTUSB=m', 'CONFIG_U30PRO_AIC_BT=m',
 )
 
 
@@ -87,7 +89,7 @@ def load_layout(config, workspace=None):
     paths = {}
     for key in ('kernel_source', 'kernel_objects', 'input_archive', 'input_manifest',
                 'boot_templates', 'busybox', 'at_transport',
-                'maintenance', 'theme', 'installer_artifacts', 'lpac_apks'):
+                'maintenance', 'theme', 'installer_artifacts', 'lpac_apks','bluetooth_decoder'):
         path = Path(data[key]).expanduser()
         if not path.is_absolute():
             raise ValueError('Registered path must be absolute: ' + key)
@@ -106,7 +108,7 @@ def installer_paths(paths):
     selected = {'windows': 'OPENWRT_GUI_ARTIFACT',
                 'macos-arm64': 'OPENWRT_GUI_MACOS_ARTIFACT',
                 'android': 'OPENWRT_GUI_ANDROID_ARTIFACT'}
-    return {name: Path(os.environ.get(variable, str(paths['installer_artifacts']/name)))
+    return {name: Path(os.environ.get(variable, str(Path(paths['installer_artifacts'])/name)))
             for name, variable in selected.items()}
 
 
@@ -118,6 +120,7 @@ def check_inputs(paths):
         raise ValueError('Missing registered inputs (nothing downloaded/copied):\n' + '\n'.join(missing))
     source = paths['kernel_source']
     runpy.run_path(str(TOP/'openwrt/lpac-state.py'))['inspect'](paths['lpac_apks'])
+    runpy.run_path(str(TOP/'tools/ble-decoder/build.py'))['check'](paths['bluetooth_decoder'])
     makefile = (source / 'Makefile').read_text(encoding='utf-8')
     version = [re.search(r'^' + key + r'\s*=\s*(\d+)\s*$', makefile, re.M) for key in ('VERSION', 'PATCHLEVEL', 'SUBLEVEL')]
     if not all(version) or '.'.join(m[1] for m in version) != '6.12.94':

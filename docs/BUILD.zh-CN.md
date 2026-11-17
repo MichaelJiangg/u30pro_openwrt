@@ -17,7 +17,7 @@ sudo apt-get update
 sudo apt-get install -y git python3 build-essential clang llvm lld cmake ninja-build \
   pkg-config bc bison flex libelf-dev libssl-dev libncurses-dev rsync cpio \
   xz-utils zstd lz4 patch curl ca-certificates openssl file kmod \
-  docker.io qemu-user-static binfmt-support
+  docker.io qemu-user-static binfmt-support g++-aarch64-linux-gnu binutils-aarch64-linux-gnu
 ```
 
 启动 Docker。构建中的 ARM64 OpenWrt 容器使用

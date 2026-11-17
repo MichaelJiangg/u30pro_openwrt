@@ -1,7 +1,14 @@
 # AIC8800 (D80X2) SDIO Wi-Fi, imported from the vendor 6.6 BSP for the native 6.12 port.
-# Both modules are always built as loadable modules (the vendor Makefiles force obj-m); Bluetooth (btlpm) is not imported yet.
+# The Wi-Fi BSP owns the shared SDIO firmware and subsystem power bitmap.
 config UNISOC_AIC8800
 	tristate "AIC8800 SDIO Wi-Fi (aic8800_bsp + aic8800_fdrv)"
 	depends on U30PRO_BSP && CFG80211 && MMC
 	help
 	  Vendor aic8800_bsp (power, SDIO, firmware download) and aic8800_fdrv (cfg80211 FullMAC) modules.
+
+config U30PRO_AIC_BT
+	tristate "UMS9632 AIC UART Bluetooth power owner"
+	depends on UNISOC_AIC8800 && RFKILL && BT_HCIUART_H4
+	help
+	  Register the stock AIC Bluetooth rfkill function through aicbsp_set_subsys.
+	  Firmware is loaded by the shared BSP; HCI uses the dedicated UART.

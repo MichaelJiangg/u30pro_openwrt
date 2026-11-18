@@ -183,6 +183,7 @@ def main(include_modem=True):
     # These are production inputs, never files recovered from a hotfixed device.
     # Compare the assembled root too: source-only syntax tests miss stale staging.
     inputs={
+        'lib/preinit/31_unisoc_fast_boot':'openwrt/overlay/lib/preinit/31_unisoc_fast_boot',
         'usr/libexec/unisoc-modem/ttl-engine':'openwrt/luci-app-mu300/root/usr/libexec/unisoc-modem/ttl-engine',
         'usr/libexec/unisoc-modem/ttl':'openwrt/luci-app-mu300/root/usr/libexec/unisoc-modem/ttl',
         'etc/hotplug.d/net/92-unisoc-ttl':'openwrt/luci-app-mu300/root/etc/hotplug.d/net/92-unisoc-ttl',

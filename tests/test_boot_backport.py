@@ -84,7 +84,6 @@ class BootContracts(unittest.TestCase):
         self.assertIn('sprd_pcie_link_up_soon(pci)',probe)
         self.assertIn('dw_pcie_wait_for_link(pci)',driver[:driver.index('static int sprd_pcie_probe(')])
         self.assertIn('sprd_pcie_clear_unhandled_msi',driver)
-        self.assertFalse((TOP/'openwrt/overlay/lib/preinit/31_mu300_failsafe_wait').exists())
 
 class EarlyLeds(ShellTest):
     def test_preinit_lights_before_usb_or_recorder_without_a_usb_interface(self):

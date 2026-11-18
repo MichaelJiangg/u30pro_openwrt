@@ -35,7 +35,7 @@ BOARD = Path(LAYOUT['board_bundle'])
 RUNTIME = WORK / 'artifacts/u30pro-runtime'
 KERNEL = Path(LAYOUT['kernel_objects'])
 ROOT_IMAGE = LAYOUT['rootfs_image']
-PACKAGES = ('luci', 'luci-i18n-base-zh-cn', 'luci-i18n-firewall-zh-cn',
+PACKAGES = ('dnsmasq-full', 'luci', 'luci-i18n-base-zh-cn', 'luci-i18n-firewall-zh-cn',
             'luci-i18n-package-manager-zh-cn', 'bash', 'ip-full', 'iw-full',
             'iwinfo', 'wireless-regdb', 'wifi-scripts', 'wpad-basic-mbedtls', 'openssl-util',
             'curl', 'ca-bundle', 'msmtp', 'flock', 'ttyd', 'luci-app-ttyd',
@@ -155,6 +155,9 @@ def dependencies():
     # replace dependencies selected here. Preserve all runtime feed settings.
     subprocess.run(command + ['update'], check=True)
     subprocess.run(command + ['add', '--scripts=no', '--commit-hooks=no', *PACKAGES], check=True)
+    packages = (ROOT/'lib/apk/db/installed').read_text()
+    if not re.search(r'^P:dnsmasq-full$', packages, re.M) or re.search(r'^P:dnsmasq$', packages, re.M):
+        raise ValueError('Expected dnsmasq-full without a second reduced provider')
     # Materialize only package user declarations; never start target services.
     runpy.run_path(str(TOP/'openwrt/stage-lpac.py'))['install'](ROOT, LAYOUT['lpac_apks'], ROOT_IMAGE)
     subprocess.run(['docker', 'run', '--rm', '--platform', 'linux/arm64',

@@ -98,10 +98,11 @@ int main(void) {
 #include <unistd.h>
 #include <linux/input.h>
 #define POWER_HOLD_MS 1500
-static int keyfd,tx,calls,code;
+static int keyfd,tx,calls,code,cancelled;
 static long clock_ms=100,duration;
 static long now_ms(void){return clock_ms;}
-static void ui_key(int c,long d){calls++;code=c;duration=d;}
+static void ui_key_event(int c,long d){calls++;code=c;duration=d;}
+static void key_click_cancel(void){cancelled++;}
 BODY
 static void event(int type,int key,int value){
  struct input_event e={.type=type,.code=key,.value=value};
@@ -116,7 +117,7 @@ int main(void){
  event(EV_KEY,KEY_POWER,1);clock_ms+=100;event(EV_KEY,KEY_POWER,0);
  assert(calls==2 && duration==100);
  event(EV_KEY,KEY_POWER,1);clock_ms+=100;event(EV_SYN,SYN_DROPPED,0);
- clock_ms+=2000;keys_read();event(EV_KEY,KEY_POWER,0);assert(calls==2);
+ clock_ms+=2000;keys_read();event(EV_KEY,KEY_POWER,0);assert(calls==2 && cancelled==1);
  event(EV_KEY,KEY_HOME,1);clock_ms+=2000;keys_read();assert(calls==2);
  event(EV_KEY,KEY_HOME,0);assert(calls==3 && code==KEY_HOME && duration==2000);
  return 0;

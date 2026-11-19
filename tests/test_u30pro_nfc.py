@@ -209,6 +209,36 @@ PY''')
             r=self.call('sync'); self.assertEqual(r.returncode, 0, r.stderr)
             self.assertEqual(self.calls()[-1]['args'], ['wifi','Selected AP',expected] if expected else ['clear'])
 
+    def test_password_change_events_and_reenable_use_current_saved_credentials(self):
+        # Both Pro products share this owner; their I2C/reset choices stay
+        # inside the native tool. Never reuse a previously captured Wi-Fi key.
+        self.assertEqual(self.call('on').returncode,0)
+        config=json.loads(self.config.read_text())
+        config.update({'wireless.selected.ssid':'Changed AP',
+                       'wireless.selected.key':'changed private key'})
+        self.config.write_text(json.dumps(config))
+        self.assertEqual(self.call('sync').returncode,0)
+        self.assertEqual(self.calls()[-1],{'args':['wifi','Changed AP','wpa2'],
+                                         'stdin':'changed private key'})
+        self.assertEqual(self.call('off').returncode,0)
+        config=json.loads(self.config.read_text())
+        config['wireless.selected.key']='latest private key'
+        self.config.write_text(json.dumps(config))
+        self.assertEqual(self.call('sync').returncode,0)
+        self.assertEqual(self.calls()[-1]['args'],['clear'])
+        self.assertEqual(self.call('state').stdout.strip(),'0')
+        self.assertEqual(self.call('on').returncode,0)
+        self.assertEqual(self.calls()[-1]['stdin'],'latest private key')
+        self.assertNotIn('private key',(self.tmp/'messages').read_text())
+
+    def test_wireless_changes_are_registered_without_polling(self):
+        service=TOP/'devices/u30pro/overlay/etc/init.d/u30pro-nfc'
+        r=self.sh(['sh'], '. "$NFC_SERVICE"; '
+                  'procd_add_reload_trigger() { printf "%s\\n" "$@"; }; '
+                  'service_triggers', NFC_SERVICE=service)
+        self.assertEqual(r.returncode,0,r.stderr)
+        self.assertIn('wireless',r.stdout.splitlines())
+
     def test_unavailable_rpc_does_not_erase_token(self):
         self.assertNotEqual(self.call('sync', HOTSPOT_FAIL='1').returncode, 0)
         self.assertFalse(self.calls())

@@ -183,7 +183,7 @@ PY''')
             self.stub(cmd, 'printf "%s\\n" "$*" >> "$STUBLOG/messages"')
 
     def call(self, *args, **env):
-        return self.script(['sh'], self.control, *args,
+        return self.script(['sh'], self.control, *args, stdin='',
                            U30PRO_NFC_TOOL=self.stubs/'nfc', U30PRO_NFC_HOTSPOT=self.stubs/'hotspot',
                            U30PRO_NFC_PLATFORM=self.platform, U30PRO_NFC_CONTROL=self.control,
                            U30PRO_NFC_RUN=self.tmp/'run', **env)

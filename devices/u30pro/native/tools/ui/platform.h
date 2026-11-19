@@ -18,6 +18,8 @@
 enum { T_DOWN, T_MOVE, T_UP };
 static void ui_touch(int type, int x, int y, long ms);
 static void ui_key(int code, long duration_ms);
+static void ui_key_event(int code, long duration_ms);
+static void key_click_cancel(void);
 static void panel_full_frames(void);
 
 static int fd = -1, keyfd = -1, touchfd = -1;
@@ -393,7 +395,7 @@ static void keys_read(void)
 	struct input_event e;
 
 	while (keyfd >= 0 && read(keyfd, &e, sizeof e) == (ssize_t)sizeof e) {
-		if (e.type == EV_SYN && e.code == SYN_DROPPED) { memset(pressed_at, 0, sizeof pressed_at); power_hold_reported = 0; continue; }
+		if (e.type == EV_SYN && e.code == SYN_DROPPED) { memset(pressed_at, 0, sizeof pressed_at); power_hold_reported = 0; key_click_cancel(); continue; }
 		if (e.type != EV_KEY || e.code > KEY_MAX) continue;
 		if (e.value == 1) { pressed_at[e.code] = now_ms(); if (e.code == KEY_POWER) power_hold_reported = 0; continue; }
 		if (e.value != 0 || !pressed_at[e.code]) continue;
@@ -404,12 +406,12 @@ static void keys_read(void)
 		if (e.code == KEY_POWER || e.code == KEY_HOME || e.code == KEY_VOLUMEUP || e.code == KEY_VOLUMEDOWN) {
 			printf("KEY code=%u value=release duration_ms=%ld\n", e.code, dur);
 			fflush(stdout);
-			ui_key(e.code, dur);
+			ui_key_event(e.code, dur);
 		}
 	}
 	if (pressed_at[KEY_POWER] && !power_hold_reported && now_ms() - pressed_at[KEY_POWER] >= POWER_HOLD_MS) {
 		power_hold_reported = 1;
-		ui_key(KEY_POWER, POWER_HOLD_MS);
+		ui_key_event(KEY_POWER, POWER_HOLD_MS);
 	}
 }
 

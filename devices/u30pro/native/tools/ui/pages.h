@@ -75,10 +75,10 @@ static const char *const WAKE_KEYS[] = { "single", "double", "key" };
 static int wake_idx = WAKE_KEY;
 /* the Wi-Fi key (KEY_HOME): short and long press actions and the long-press time (u30pro_native_control.settings home_short_action,
  * home_long_action, home_long_press_ms, set in the web pages); the actions other than "page-next" run native-control.uc key-action */
-enum { KA_PAGE, KA_NONE, KA_WIFI, KA_CELL, KA_REFRESH, NKA };
-static const char *const KEY_ACTIONS[] = { "page-next", "none", "toggle-wifi", "reconnect-cellular", "refresh-status" };
-static const char *const KEY_ACTION_NAMES[] = { "", "", "切换 Wi-Fi", "重新拨号", "刷新状态" };
-static int key_short = KA_PAGE, key_long = KA_NONE, key_long_ms = 1800;
+enum { KA_PAGE, KA_NONE, KA_WIFI, KA_CELL, KA_REFRESH, KA_DATA, KA_BAND, KA_NFC, KA_CUSTOM, KA_DEFAULT, NKA };
+static const char *const KEY_ACTIONS[] = { "page-next", "none", "toggle-wifi", "reconnect-cellular", "refresh-status", "data-switch", "wifi-band", "nfc-toggle", "custom", "default" };
+static const char *const KEY_ACTION_NAMES[] = { "", "", "切换 Wi-Fi", "重新拨号", "刷新状态", "切换上网卡", "切换 Wi-Fi 频段", "切换 NFC", "自定义指令", "" };
+static int key_short = KA_PAGE, key_long = KA_NONE, key_long_ms = 1800, key_power_short = KA_DEFAULT, key_double = KA_NONE, key_power_double = KA_NONE;
 static int key_action_idx(const char *v, int fallback)
 {
 	for (int i = 0; v && i < NKA; i++) if (!strcmp(v, KEY_ACTIONS[i])) return i;

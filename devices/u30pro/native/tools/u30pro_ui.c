@@ -135,7 +135,7 @@ static void settings_save(void)
 	if (!f) return;
 	fprintf(f, "theme=%d\noff=%d\nwake=%s\nlock=%d\npin=%s\npinlen=%d\n", theme_idx, off_idx, WAKE_KEYS[wake_idx % NWAKE], lock_on, pin_hash,
 		pin_hash[0] ? pin_digits : 0);
-	fprintf(f, "home_short=%s\nhome_long=%s\nhome_ms=%d\n", KEY_ACTIONS[key_short], KEY_ACTIONS[key_long], key_long_ms);
+	fprintf(f, "home_short=%s\nhome_long=%s\nhome_ms=%d\nhome_double=%s\npower_short=%s\npower_double=%s\n", KEY_ACTIONS[key_short], KEY_ACTIONS[key_long], key_long_ms, KEY_ACTIONS[key_double], KEY_ACTIONS[key_power_short], KEY_ACTIONS[key_power_double]);
 	fprintf(f, "wp_dim=%d\nglass=%d\nglass_blur=%d\nglass_tint=%d\nwp_live=%d\nwp_live_pages=%d\n", wp_dim, glass_clear, glass_blur, glass_tint, wp_live,
 		wp_live_pages);
 	fclose(f);
@@ -165,6 +165,9 @@ static void settings_load(void)
 		else if (sscanf(line, "pin=%99s", s) == 1 && pin_hash_ok(s)) snprintf(pin_hash, sizeof pin_hash, "%s", s);
 		else if (sscanf(line, "home_short=%31s", s) == 1) key_short = key_action_idx(s, KA_PAGE);
 		else if (sscanf(line, "home_long=%31s", s) == 1) { key_long = key_action_idx(s, KA_NONE); if (key_long == KA_PAGE) key_long = KA_NONE; }
+		else if (sscanf(line, "home_double=%31s", s) == 1) key_double = key_action_idx(s, KA_NONE);
+		else if (sscanf(line, "power_short=%31s", s) == 1) key_power_short = key_action_idx(s, KA_DEFAULT);
+		else if (sscanf(line, "power_double=%31s", s) == 1) key_power_double = key_action_idx(s, KA_NONE);
 		else if (sscanf(line, "home_ms=%d", &v) == 1 && key_long_ms_ok(v)) key_long_ms = v;
 		else if (sscanf(line, "wp_dim=%d", &v) == 1 && v >= 0 && v <= 90) wp_dim = v;
 		else if (sscanf(line, "glass=%d", &v) == 1 && v >= 0 && v <= 100) glass_clear = v;
@@ -1181,9 +1184,47 @@ static void touch_tick(long now)
 /* runs a Wi-Fi key action of the web settings (native-control.uc key-action reads the setting again) */
 static void key_run(int action, int press_long)
 {
-	run_async(press_long ? "/usr/sbin/u30pro-panel-control key-long"
-			     : "/usr/sbin/u30pro-panel-control key-short");
+	run_async(press_long == 2 ? "/usr/sbin/u30pro-panel-control key-double" :
+		  press_long ? "/usr/sbin/u30pro-panel-control key-long" : "/usr/sbin/u30pro-panel-control key-short");
 	toast_show(KEY_ACTION_NAMES[action], TH()->a, 1500);
+}
+
+/* One-shot click disambiguation in the existing input loop. No idle timer. */
+static void ui_key(int code, long duration_ms);
+static struct { long due, duration; } key_clicks[2];
+static void key_click_cancel(void) { memset(key_clicks, 0, sizeof key_clicks); }
+static void key_click_tick(long now)
+{
+	for (int i = 0; i < 2; i++) if (key_clicks[i].due && now >= key_clicks[i].due) {
+		long duration = key_clicks[i].duration;
+		key_clicks[i].due = 0;
+		ui_key(i ? 102 : 116, duration);
+	}
+}
+static long key_click_wait(long now, long wait)
+{
+	for (int i = 0; i < 2; i++) if (key_clicks[i].due) {
+		long left = key_clicks[i].due - now;
+		if (left < wait) wait = left > 0 ? left : 1;
+	}
+	return wait;
+}
+static void ui_key_event(int code, long duration_ms)
+{
+	if (code != 116 && code != 102) { ui_key(code, duration_ms); return; }
+	int i = code == 102;
+	long now = now_ms(), hold = i ? key_long_ms : POWER_HOLD_MS;
+	if (duration_ms >= hold) {
+		key_clicks[i].due = 0;
+		ui_key(code, duration_ms); /* Power hold always bypasses clicks. */
+	} else if (key_clicks[i].due && now < key_clicks[i].due) {
+		key_clicks[i].due = 0;
+		ui_key(code, -1); /* A double press never emits its two singles. */
+	} else {
+		key_click_tick(now);
+		key_clicks[i].duration = duration_ms;
+		key_clicks[i].due = now + 500;
+	}
 }
 
 static void ui_key(int code, long duration_ms)
@@ -1197,6 +1238,10 @@ static void ui_key(int code, long duration_ms)
 		if (code == 116 && duration_ms < POWER_HOLD_MS) incoming_action(0);
 		return;
 	}
+	if (home && duration_ms < 0 && !power_menu) {
+		if (key_double != KA_NONE && key_double != KA_DEFAULT && !(pin_mode && !lock_soft)) key_run(key_double, 2);
+		return;
+	}
 	/* a long press of the Wi-Fi key runs its long action, also on the dark screen, but not past a PIN lock */
 	if (home && duration_ms >= key_long_ms && !power_menu) {
 		if (key_long != KA_NONE && !(pin_mode && !lock_soft)) { if (!asleep) last_act = now_ms(); key_run(key_long, 1); }
@@ -1207,12 +1252,23 @@ static void ui_key(int code, long duration_ms)
 		else if (power_menu) {
 			if (power_choice) power_choice = 0; else power_menu = 0;
 			dirty = 1;
+		} else if (duration_ms < 0) {
+			if (!(pin_mode && !lock_soft) && key_power_double != KA_NONE && key_power_double != KA_DEFAULT)
+				run_async("/usr/sbin/u30pro-panel-control key-power-double");
+		} else if (key_power_short != KA_DEFAULT) {
+			if (!(pin_mode && !lock_soft) && key_power_short != KA_NONE)
+				run_async("/usr/sbin/u30pro-panel-control key-power-short");
 		} else if (asleep) wake(); else go_sleep();
 		return;
 	}
 	if (power_menu) return;
 	if (duration_ms > 1800 && !home) return;
-	if (asleep) { wake(); return; }
+	if (asleep) {
+		if (home && key_short != KA_PAGE && key_short != KA_DEFAULT) {
+			if (!(pin_mode && !lock_soft) && key_short != KA_NONE) key_run(key_short, 0);
+		} else wake();
+		return;
+	}
 	last_act = now_ms();
 	if (pin_mode == PIN_LOCKSCR && lock_soft) { soft_unlock(); return; }  /* a key is no stray touch: it opens the soft lock */
 	if (pin_mode == PIN_UNLOCK || pin_mode == PIN_LOCKSCR) return;     /* a locked screen ignores the other keys */
@@ -1220,7 +1276,7 @@ static void ui_key(int code, long duration_ms)
 	if (ov != OV_NONE) { if (ov == OV_SMS) sms_detail_close(); else ov = OV_NONE; state_write(); return; }
 	if (sheet_is_open()) { sheet_close(); state_write(); return; }
 	if (fn_sub >= 0) { fn_sub = -1; state_write(); return; }
-	if (home && key_short != KA_PAGE) {
+	if (home && key_short != KA_PAGE && key_short != KA_DEFAULT) {
 		if (key_short != KA_NONE) key_run(key_short, 0);
 		return;
 	}
@@ -1956,6 +2012,7 @@ int main(int argc, char **argv)
 		}
 		if (flip_pending) flip_in_flight();	/* take the completion event as soon as it is there (the DRM fd stays readable until it is read) */
 		keys_read();
+		key_click_tick(now);
 		touch_read();
 		if (touchfd < 0 && now >= retry_touch) { touch_open(); retry_touch = now + 2000; }
 		if (now >= next_collect) {
@@ -2024,6 +2081,7 @@ int main(int argc, char **argv)
 		struct pollfd p[] = { { .fd = keyfd, .events = POLLIN }, { .fd = touchfd, .events = POLLIN }, { .fd = flip_pending ? fd : -1, .events = POLLIN },
 				      { .fd = bus_fd(now), .events = POLLIN }, { .fd = powerfd, .events = POLLIN } };
 		long wait = asleep ? 200 : 30;
+		wait = key_click_wait(now, wait);
 
 		/* the next frame is made while a flip is in flight too; a frame made and waiting goes out on the flip's completion (DRM fd) */
 		if (!asleep && !frame_ready && next_frame - now < wait) wait = next_frame - now < 1 ? 1 : next_frame - now;

@@ -90,6 +90,36 @@ int main(int argc, char **argv) {
   settle(); expect_page(PG_SIGNAL);
   nav_tick(now_ms()+500); expect_page(PG_SIGNAL);
   break;
+ case 7:
+  // Configuring short power never steals its hold-to-shutdown menu.
+  key_power_short=KA_CUSTOM;ui_key(116,100);assert(!asleep);
+  ui_key(116,POWER_HOLD_MS);assert(power_menu);
+  break;
+ case 8:
+  key_power_short=KA_DEFAULT;ui_key(116,100);assert(asleep);
+  ui_key(116,100);assert(!asleep);
+  key_power_short=KA_NONE;ui_key(116,100);assert(!asleep);
+  key_short=KA_CUSTOM;asleep=1;ui_key(102,100);assert(asleep);
+  pin_mode=PIN_LOCKSCR;lock_soft=0;ui_key(102,100);
+  break;
+ case 9:
+  key_short=KA_CUSTOM;key_double=KA_BAND;
+  ui_key_event(102,100);clock_step(499);key_click_tick(now_ms());
+  ui_key_event(102,100);clock_step(600);key_click_tick(now_ms());
+  ui_key_event(102,100);clock_step(500);key_click_tick(now_ms());
+  assert(!key_clicks[1].due);
+  break;
+ case 10:
+  key_power_short=key_power_double=KA_CUSTOM;
+  ui_key_event(116,100);assert(key_clicks[0].due);
+  ui_key_event(116,POWER_HOLD_MS);assert(power_menu&&!key_clicks[0].due);
+  clock_step(600);key_click_tick(now_ms());
+  break;
+ case 11:
+  key_power_short=key_power_double=KA_CUSTOM;
+  ui_key_event(116,100);clock_step(100);ui_key_event(116,100);
+  clock_step(600);key_click_tick(now_ms());
+  break;
  default: assert(0);
  }
  return 0;
@@ -125,6 +155,35 @@ int main(int argc, char **argv) {
 
     def test_normal_animation_commits_once(self):
         self.check_case(6)
+
+
+    def test_custom_power_short_preserves_power_hold(self):
+        result = subprocess.run([str(self.binary), '7'], capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.count('RUN /usr/sbin/u30pro-panel-control key-power-short'), 1)
+
+    def test_default_none_dark_screen_and_pin_guard(self):
+        result = subprocess.run([str(self.binary), '8'], capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.count('RUN /usr/sbin/u30pro-panel-control key-short'), 1)
+
+
+    def test_double_click_suppresses_single_and_triple_has_one_single(self):
+        result = subprocess.run([str(self.binary), '9'], capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.count('RUN /usr/sbin/u30pro-panel-control key-double'), 1)
+        self.assertEqual(result.stdout.count('RUN /usr/sbin/u30pro-panel-control key-short'), 1)
+
+    def test_power_hold_cancels_pending_click_without_custom_execution(self):
+        result = subprocess.run([str(self.binary), '10'], capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('RUN /usr/sbin/u30pro-panel-control key-power', result.stdout)
+
+    def test_power_double_is_independent_of_power_short(self):
+        result = subprocess.run([str(self.binary), '11'], capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.count('RUN /usr/sbin/u30pro-panel-control key-power-double'), 1)
+        self.assertNotIn('RUN /usr/sbin/u30pro-panel-control key-power-short', result.stdout)
 
 
 if __name__ == '__main__':

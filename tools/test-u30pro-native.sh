@@ -23,6 +23,8 @@ python3 -m unittest discover -s "$top/tests" -p test_u30pro_public_build.py
 python3 "$top/openwrt/tests/call-notify.py"
 python3 "$top/tests/u30pro_incoming_call.py"
 python3 "$top/tests/u30pro_navigation.py"
+python3 "$top/tests/test_configurable_buttons.py"
+python3 "$top/tests/test_buttons_delivery.py"
 python3 "$top/tests/u30pro_sim_status.py"
 python3 "$top/tests/u30pro_screen_sms.py"
 python3 "$top/tests/u30pro_power_events.py"

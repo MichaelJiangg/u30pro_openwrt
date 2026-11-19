@@ -14,16 +14,11 @@ charge_action() {
     [ "$ok" = true ]
 }
 case ${1:-} in
-    key-short|key-long)
+    key-power-short|key-power-double) exec /usr/libexec/unisoc-modem/buttons run power "${1#key-power-}" ;;
+    key-refresh) exec ubus send u30pro.panel.request '{"request":"kick"}' ;;
+    key-short|key-long|key-double)
         press=${1#key-}
-        action=$(uci -q get "u30pro_native_control.settings.home_${press}_action" || true)
-        case $action in
-            toggle-wifi) exec "$0" wifi-toggle ;;
-            reconnect-cellular) exec "$0" reconnect ;;
-            refresh-status) exec ubus send u30pro.panel.request '{"request":"kick"}' ;;
-            ''|none|page-next) exit 0 ;;
-            *) echo 'Invalid saved key action' >&2; exit 2 ;;
-        esac ;;
+        exec /usr/libexec/unisoc-modem/buttons run function "$press" ;;
     wifi-toggle)
         # The installer creates ap0; users may rename the AP section. Resolve
         # exactly the same selected AP as the dashboard, never a fixed section.

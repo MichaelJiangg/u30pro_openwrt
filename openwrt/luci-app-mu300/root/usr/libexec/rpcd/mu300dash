@@ -389,7 +389,7 @@ do_list() {
 	"data_sim_status": { "id": "String" },
 	"sim_radio_get": { },
 	"button_get": { },
-	"button_set": { "short": "String", "long": "String" },
+	"button_set": { "short": "String", "long": "String", "short_command": "String", "long_command": "String", "power_short": "String", "power_command": "String", "double": "String", "double_command": "String", "power_double": "String", "power_double_command": "String" },
 	"sim_radio_set": { "slot": "String", "enabled": false, "confirm": false },
 	"sim_dsds_set": { "enabled": false, "confirm": false },
 	"sim_radio_status": { "id": "String" },

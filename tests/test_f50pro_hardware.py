@@ -2,6 +2,7 @@
 import json
 import re
 import subprocess
+import time
 from pathlib import Path
 from helpers import TOP,ShellTest
 
@@ -13,6 +14,12 @@ class Hardware(ShellTest):
         super().setUp()
         self.root=self.tmp/'root';(self.root/'etc/mu300').mkdir(parents=True)
         (self.root/'etc/mu300/model').write_text('f50pro\n')
+        self.dash=self.tmp/'dash';self.dash.mkdir()
+        for name in ('buttons','buttons.py'):
+            target=self.dash/name
+            target.write_bytes((SETTINGS.parent/name).read_bytes());target.chmod(0o755)
+        target=self.dash/'data-sim'
+        target.write_text('#!/bin/sh\nexec mu300-u30pro-sim apply "${3#f50pro-card-}"\n');target.chmod(0o755)
         self.run=self.tmp/'run';self.run.mkdir();(self.run/'mu300-data-sim-actual').write_text('1\n')
         self.stub('uci', '''case "$2" in get) cat "$STUBLOG/${3##*.}" 2>/dev/null;; set) n=${3%%=*}; printf '%s' "${3#*=}" > "$STUBLOG/${n##*.}";; commit|revert) :;; esac''')
         self.stub('jsonfilter', '''exec python3 -c 'import json,sys,re; d=json.load(sys.stdin); k=sys.argv[-1][2:]; m=re.fullmatch(r"(\\w+)\\[(\\d+)\\]",k); print(d[m[1]][int(m[2])] if m else d[k])' "$@"''')
@@ -20,7 +27,7 @@ class Hardware(ShellTest):
         for name in ('mu300-u30pro-sim','mu300-wifi-band','mu300-at'):
             self.stub(name,'echo "$0 $*" >> "$STUBLOG/actions"')
     def env(self,**extra):
-        return super().env(**dict(dict(MU300_SYSROOT=self.root,MU300_RUN=self.run,MU300_BIN=self.stubs),**extra))
+        return super().env(**dict(dict(MU300_SYSROOT=self.root,MU300_RUN=self.run,MU300_BIN=self.stubs,MU300_DASH_BIN=self.dash),**extra))
     def test_default_button_does_nothing_for_short_and_long(self):
         for shell in self.each_shell():
             for kind in ('short','long'):
@@ -31,6 +38,8 @@ class Hardware(ShellTest):
             (self.tmp/'f50pro_button_short').write_text('data-switch')
             (self.tmp/'actions').unlink(missing_ok=True)
             r=self.script(shell,KEY,'short');self.assertEqual(r.returncode,0,r.stderr)
+            end=time.monotonic()+3
+            while not (self.tmp/'actions').exists() and time.monotonic()<end:time.sleep(.02)
             self.assertIn('mu300-u30pro-sim apply 0',(self.tmp/'actions').read_text())
             self.assertNotIn('mu300-at',(self.tmp/'actions').read_text())
     def test_settings_allowlist_and_non_f50_isolation(self):
@@ -40,7 +49,7 @@ class Hardware(ShellTest):
             r=self.script(shell,KEY,'short');self.assertNotEqual(r.returncode,0)
             (self.tmp/'f50pro_button_short').unlink()
             (self.root/'etc/mu300/model').write_text('u30pro\n')
-            self.assertFalse(json.loads(self.script(shell,SETTINGS,'get').stdout)['supported'])
+            self.assertEqual(json.loads(self.script(shell,SETTINGS,'get').stdout)['model'],'u30pro')
             self.assertNotEqual(self.script(shell,KEY,'short').returncode,0)
             (self.root/'etc/mu300/model').write_text('f50pro\n')
         self.assertFalse((self.tmp/'actions').exists())

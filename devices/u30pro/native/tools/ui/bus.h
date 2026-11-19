@@ -102,10 +102,16 @@ static void settings_load(void)
 	key_short = KA_PAGE;
 	key_long = KA_NONE;
 	key_long_ms = 1800;
+	key_power_short = KA_DEFAULT;
+	key_double = key_power_double = KA_NONE;
 	if (pkg && (s = uci_lookup_section(c, pkg, "settings"))) {
 		key_short = key_action_idx(uci_lookup_option_string(c, s, "home_short_action"), KA_PAGE);
 		key_long = key_action_idx(uci_lookup_option_string(c, s, "home_long_action"), KA_NONE);
-		if (key_long == KA_PAGE) key_long = KA_NONE;
+		if (key_short == KA_DEFAULT) key_short = KA_PAGE;
+		if (key_long == KA_PAGE || key_long == KA_DEFAULT) key_long = KA_NONE;
+		key_power_short = key_action_idx(uci_lookup_option_string(c, s, "power_short_action"), KA_DEFAULT);
+		key_double = key_action_idx(uci_lookup_option_string(c, s, "home_double_action"), KA_NONE);
+		key_power_double = key_action_idx(uci_lookup_option_string(c, s, "power_double_action"), KA_NONE);
 		if ((v = uci_lookup_option_string(c, s, "home_long_press_ms")) && key_long_ms_ok(atoi(v))) key_long_ms = atoi(v);
 	}
 	uci_free_context(c);

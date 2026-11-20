@@ -277,7 +277,7 @@ press_next = function() {
     pressing = true;
     if (F50PRO_KEYS) {
         // One physical switch key; no inherited poweroff or LED wake action.
-        if (p[0] == KEY_WIFI) button_done([BIN+'/f50pro-key-action',p[1]], () => press_next());
+        if (p[0] == KEY_WIFI && p[1] != 'short') button_done([BIN+'/f50pro-key-action',p[1]], () => press_next());
         else press_next();
         return;
     }
@@ -290,6 +290,17 @@ press_next = function() {
 function press_enqueue(code, kind) {
     push(presses,[code,kind]);
     if (!pressing) press_next();
+}
+// Read settings only on a key event; no polling or Python on single presses.
+let button_config = null;
+function button_double_enabled(code) {
+    if (button_config == null) button_config = require('uci');
+    let c = button_config.cursor(R + '/etc/config');
+    let model = button_model(), kind = code == KEY_POWER ? 'power_double' : 'double';
+    let action = c.get('unisoc_modem', 'main', model + '_button_' + kind);
+    c.unload('unisoc_modem');
+    if (action == null || action == 'default') return model == 'u30air' && code != KEY_POWER;
+    return action != 'none';
 }
 let button_clicks = {};
 function button_click_cancel() {
@@ -304,14 +315,16 @@ function press(code, kind) {
     if (kind == 'long') {
         button_clicks[code]?.cancel(); button_clicks[code] = null;
         press_enqueue(code, kind); // Protected power hold never waits on a click.
+    } else if (!button_double_enabled(code)) {
+        button_clicks[code]?.cancel(); button_clicks[code] = null;
+        press_enqueue(code, 'short'); // Unmapped doubles must never swallow repeats.
     } else if (button_clicks[code]) {
         button_clicks[code].cancel(); button_clicks[code] = null;
         press_enqueue(code, 'double');
     } else {
-        button_clicks[code] = uloop.timer(500, () => {
-            button_clicks[code] = null;
-            press_enqueue(code, 'short');
-        });
+        // Expiry only forgets double-click history; it never delays an action.
+        button_clicks[code] = uloop.timer(250, () => { button_clicks[code] = null; });
+        press_enqueue(code, 'short');
     }
 }
 

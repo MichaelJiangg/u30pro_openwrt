@@ -827,7 +827,8 @@ static void do_action(int id)
 		/* the log says which changes came from the screen (the web interface and the apps go through u30pro-native-control alone) */
 		printf("TOUCH hotspot %s\n", wifi_want ? "on" : "off"); fflush(stdout);
 		toast_show(D.wifi_active ? "正在关闭 Wi-Fi…" : "正在开启 Wi-Fi…", C_WARN, 2500);
-		run_async("/usr/sbin/u30pro-panel-control wifi-toggle");
+		run_async(wifi_want ? "/usr/sbin/u30pro-panel-control wifi-on"
+				    : "/usr/sbin/u30pro-panel-control wifi-off");
 		break;
 	case H_RELAY_TOGGLE:
 		/* the switch only turns the saved relay on or off; the network and its password are set in the web interface */
@@ -1189,41 +1190,33 @@ static void key_run(int action, int press_long)
 	toast_show(KEY_ACTION_NAMES[action], TH()->a, 1500);
 }
 
-/* One-shot click disambiguation in the existing input loop. No idle timer. */
+/* Fixed singles are immediate. Only configured doubles consume a second click. */
 static void ui_key(int code, long duration_ms);
-static struct { long due, duration; } key_clicks[2];
+static struct { long due; } key_clicks[2];
 static void key_click_cancel(void) { memset(key_clicks, 0, sizeof key_clicks); }
 static void key_click_tick(long now)
 {
-	for (int i = 0; i < 2; i++) if (key_clicks[i].due && now >= key_clicks[i].due) {
-		long duration = key_clicks[i].duration;
-		key_clicks[i].due = 0;
-		ui_key(i ? 102 : 116, duration);
-	}
-}
-static long key_click_wait(long now, long wait)
-{
-	for (int i = 0; i < 2; i++) if (key_clicks[i].due) {
-		long left = key_clicks[i].due - now;
-		if (left < wait) wait = left > 0 ? left : 1;
-	}
-	return wait;
+    for (int i = 0; i < 2; i++) if (now >= key_clicks[i].due) key_clicks[i].due = 0;
 }
 static void ui_key_event(int code, long duration_ms)
 {
 	if (code != 116 && code != 102) { ui_key(code, duration_ms); return; }
 	int i = code == 102;
 	long now = now_ms(), hold = i ? key_long_ms : POWER_HOLD_MS;
+	int action = i ? key_double : key_power_double;
 	if (duration_ms >= hold) {
 		key_clicks[i].due = 0;
 		ui_key(code, duration_ms); /* Power hold always bypasses clicks. */
+	} else if (action == KA_NONE || action == KA_DEFAULT) {
+		key_clicks[i].due = 0;
+		ui_key(code, duration_ms); /* Every unmapped single counts, even in a burst. */
 	} else if (key_clicks[i].due && now < key_clicks[i].due) {
 		key_clicks[i].due = 0;
-		ui_key(code, -1); /* A double press never emits its two singles. */
+		ui_key(code, -1); /* First single already ran; do not emit a second one. */
 	} else {
 		key_click_tick(now);
-		key_clicks[i].duration = duration_ms;
-		key_clicks[i].due = now + 500;
+		key_clicks[i].due = now + 250;
+		ui_key(code, duration_ms); /* No disambiguation delay on a single. */
 	}
 }
 
@@ -1255,18 +1248,13 @@ static void ui_key(int code, long duration_ms)
 		} else if (duration_ms < 0) {
 			if (!(pin_mode && !lock_soft) && key_power_double != KA_NONE && key_power_double != KA_DEFAULT)
 				run_async("/usr/sbin/u30pro-panel-control key-power-double");
-		} else if (key_power_short != KA_DEFAULT) {
-			if (!(pin_mode && !lock_soft) && key_power_short != KA_NONE)
-				run_async("/usr/sbin/u30pro-panel-control key-power-short");
 		} else if (asleep) wake(); else go_sleep();
 		return;
 	}
 	if (power_menu) return;
 	if (duration_ms > 1800 && !home) return;
 	if (asleep) {
-		if (home && key_short != KA_PAGE && key_short != KA_DEFAULT) {
-			if (!(pin_mode && !lock_soft) && key_short != KA_NONE) key_run(key_short, 0);
-		} else wake();
+		wake();
 		return;
 	}
 	last_act = now_ms();
@@ -1276,10 +1264,6 @@ static void ui_key(int code, long duration_ms)
 	if (ov != OV_NONE) { if (ov == OV_SMS) sms_detail_close(); else ov = OV_NONE; state_write(); return; }
 	if (sheet_is_open()) { sheet_close(); state_write(); return; }
 	if (fn_sub >= 0) { fn_sub = -1; state_write(); return; }
-	if (home && key_short != KA_PAGE && key_short != KA_DEFAULT) {
-		if (key_short != KA_NONE) key_run(key_short, 0);
-		return;
-	}
 	page_step(code == 114 ? -1 : 1);        /* KEY_VOLUMEDOWN goes back; the Wi-Fi key (KEY_HOME) goes forward */
 	state_write();
 }
@@ -2081,7 +2065,6 @@ int main(int argc, char **argv)
 		struct pollfd p[] = { { .fd = keyfd, .events = POLLIN }, { .fd = touchfd, .events = POLLIN }, { .fd = flip_pending ? fd : -1, .events = POLLIN },
 				      { .fd = bus_fd(now), .events = POLLIN }, { .fd = powerfd, .events = POLLIN } };
 		long wait = asleep ? 200 : 30;
-		wait = key_click_wait(now, wait);
 
 		/* the next frame is made while a flip is in flight too; a frame made and waiting goes out on the flip's completion (DRM fd) */
 		if (!asleep && !frame_ready && next_frame - now < wait) wait = next_frame - now < 1 ? 1 : next_frame - now;

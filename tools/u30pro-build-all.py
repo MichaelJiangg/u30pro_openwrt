@@ -70,6 +70,7 @@ def main():
     load('u30pro-bootstrap.py')['provision'](layout, work)
     root_image(work, layout)
     call('sh', TOP/'openwrt/build-lpac.sh', layout['lpac_apks'])
+    call('sh', TOP/'openwrt/build-hostapd.sh', layout['wifi_apks'])
     call(sys.executable, TOP/'tools/ble-decoder/build.py', '--output', layout['bluetooth_decoder'])
     package = load('u30pro-package.py')
     if not package['STAGE'].exists():

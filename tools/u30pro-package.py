@@ -160,6 +160,7 @@ def dependencies():
         raise ValueError('Expected dnsmasq-full without a second reduced provider')
     # Materialize only package user declarations; never start target services.
     runpy.run_path(str(TOP/'openwrt/stage-lpac.py'))['install'](ROOT, LAYOUT['lpac_apks'], ROOT_IMAGE)
+    runpy.run_path(str(TOP/'openwrt/stage-wifi.py'))['install'](ROOT, LAYOUT['wifi_apks'], ROOT_IMAGE)
     subprocess.run(['docker', 'run', '--rm', '--platform', 'linux/arm64',
                     '-v', str(ROOT) + ':/target', '--entrypoint', '/bin/sh',
                     ROOT_IMAGE, '-ec',
@@ -208,6 +209,7 @@ def sources(refresh=False):
         if (ROOT/'etc/mu300/platform').read_text().strip()!='u30pro':
             raise ValueError('Retained root is not the registered U30 Pro profile')
     runpy.run_path(str(TOP/'openwrt/stage-lpac.py'))['install'](ROOT, LAYOUT['lpac_apks'], ROOT_IMAGE)
+    runpy.run_path(str(TOP/'openwrt/stage-wifi.py'))['install'](ROOT, LAYOUT['wifi_apks'], ROOT_IMAGE)
     # The prepared root belongs to this workspace, not to the previous ZIP's
     # checkout location. Archives may be moved/deleted after publication.
     # Reapply current sources, then verify kernel/runtime and the resulting root

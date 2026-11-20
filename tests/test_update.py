@@ -122,6 +122,34 @@ class Update(ShellTest):
             shutil.rmtree(old)
             shutil.rmtree(self.disk / 'openwrt.old')
 
+    def test_wifi_relay_first_and_subsequent_update_keep_user_networks(self):
+        overlay=TOP/'devices/u30pro/overlay'
+        names=('usr/libexec/unisoc-modem/wifi-relay','usr/libexec/rpcd/u30pro-wifi-relay',
+               'usr/share/ucode/mu300/wifi-relay.uc','usr/share/ucode/mu300/wifi-native.uc',
+               'usr/share/rpcd/acl.d/u30pro-wifi-relay.json','usr/share/luci/menu.d/u30pro-wifi-relay.json',
+               'www/luci-static/resources/view/mu300/wifi-relay.js')
+        for shell in self.each_shell():
+            old, _ = self.vendor_update_fixture()
+            user={'etc/config/wireless':b'custom AP+STA with user password',
+                  'etc/config/network':b'user interface priorities',
+                  'etc/config/firewall':b'user zone rules',
+                  'etc/config/u30pro_native_control':b'custom screen settings'}
+            for name,raw in user.items():
+                p=old/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(raw)
+            for generation in (1,2):
+                archive=self.disk/'.mu300-update/mu300-openwrt-rootfs.tar.gz'
+                with tarfile.open(archive,'w:gz') as tar:
+                    files={name:(overlay/name).read_bytes()+b'\n'*(generation-1) for name in names}
+                    files.update({'sbin/init':b'#!/bin/sh\n','etc/mu300/image-version':b'relay-test-new\n'})
+                    for name,raw in files.items():
+                        member=tarfile.TarInfo(name);member.size=len(raw)
+                        member.mode=0o755 if name=='sbin/init' or raw.startswith(b'#!') else 0o644
+                        tar.addfile(member,io.BytesIO(raw))
+                r=self.up(shell,'sync() { :; }; is_root() { false; }; apply_one openwrt relay-test-new')
+                self.assertEqual(r.returncode,0,r.stderr)
+                for name,raw in files.items():self.assertEqual((old/name).read_bytes(),raw)
+                for name,raw in user.items():self.assertEqual((old/name).read_bytes(),raw)
+
     def test_vendor_copy_failure_keeps_old_system(self):
         for shell in self.each_shell():
             old, files = self.vendor_update_fixture()

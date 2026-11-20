@@ -92,33 +92,69 @@ int main(int argc, char **argv) {
   break;
  case 7:
   // Configuring short power never steals its hold-to-shutdown menu.
-  key_power_short=KA_CUSTOM;ui_key(116,100);assert(!asleep);
+  key_power_short=KA_CUSTOM;ui_key(116,100);assert(asleep);
   ui_key(116,POWER_HOLD_MS);assert(power_menu);
   break;
  case 8:
   key_power_short=KA_DEFAULT;ui_key(116,100);assert(asleep);
   ui_key(116,100);assert(!asleep);
-  key_power_short=KA_NONE;ui_key(116,100);assert(!asleep);
-  key_short=KA_CUSTOM;asleep=1;ui_key(102,100);assert(asleep);
+  key_power_short=KA_NONE;ui_key(116,100);assert(asleep);
+  key_short=KA_CUSTOM;asleep=1;ui_key(102,100);assert(!asleep);
   pin_mode=PIN_LOCKSCR;lock_soft=0;ui_key(102,100);
   break;
  case 9:
   key_short=KA_CUSTOM;key_double=KA_BAND;
-  ui_key_event(102,100);clock_step(499);key_click_tick(now_ms());
+  ui_key_event(102,100);assert(anim_on);clock_step(249);key_click_tick(now_ms());
   ui_key_event(102,100);clock_step(600);key_click_tick(now_ms());
   ui_key_event(102,100);clock_step(500);key_click_tick(now_ms());
   assert(!key_clicks[1].due);
   break;
  case 10:
   key_power_short=key_power_double=KA_CUSTOM;
-  ui_key_event(116,100);assert(key_clicks[0].due);
+  ui_key_event(116,100);assert(asleep && key_clicks[0].due);
   ui_key_event(116,POWER_HOLD_MS);assert(power_menu&&!key_clicks[0].due);
   clock_step(600);key_click_tick(now_ms());
+  break;
+ case 13:
+  key_double=KA_NONE;
+  for(int i=0;i<11;i++) { ui_key_event(102,100); clock_step(20); }
+  settle();expect_page(11);assert(!key_clicks[1].due);
+  break;
+ case 14:
+  key_power_double=KA_NONE;
+  ui_key_event(116,100);assert(asleep);clock_step(80);
+  ui_key_event(116,100);assert(!asleep);assert(!key_clicks[0].due);
+  break;
+ case 15:
+  key_double=KA_BAND;
+  ui_key_event(102,100);clock_step(250);ui_key_event(102,100);
+  settle();expect_page(2);
+  break;
+ case 16:
+  key_double=KA_BAND;
+  ui_key_event(102,100);clock_step(100);key_double=KA_NONE;
+  ui_key_event(102,100);settle();expect_page(2);assert(!key_clicks[1].due);
+  break;
+ case 12:
+  assert(!strcmp(wifi_band_label("5g"),"5G"));
+  assert(!strcmp(wifi_band_label("5 GHz"),"5G"));
+  assert(!strcmp(wifi_band_label("2g"),"2.4G"));
+  assert(!strcmp(wifi_band_label("2.4 GHz"),"2.4G"));
+  assert(!strcmp(wifi_band_label("6G"),"6G"));
+  assert(!strcmp(wifi_band_label(""),""));
   break;
  case 11:
   key_power_short=key_power_double=KA_CUSTOM;
   ui_key_event(116,100);clock_step(100);ui_key_event(116,100);
   clock_step(600);key_click_tick(now_ms());
+  break;
+ case 17:
+  strcpy(D.relay_cfg,"saved uplink"); D.relay_on=0;
+  do_action(H_RELAY_TOGGLE); assert(relay_want);
+  D.relay_on=1; D.wifi_enabled=1; D.wifi_active=0;
+  do_action(H_WIFI_TOGGLE); assert(wifi_want);
+  clock_step(10000); D.wifi_active=1;
+  do_action(H_WIFI_TOGGLE); assert(!wifi_want);
   break;
  default: assert(0);
  }
@@ -138,6 +174,15 @@ int main(int argc, char **argv) {
                                 text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_enable_relay_then_hotspot_sends_explicit_requested_states(self):
+        result = subprocess.run([str(self.binary), '17'], capture_output=True,
+                                text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        commands = [line for line in result.stdout.splitlines() if line.startswith('RUN ')]
+        self.assertEqual(commands, ['RUN /usr/sbin/u30pro-panel-control relay-on',
+                                   'RUN /usr/sbin/u30pro-panel-control wifi-on',
+                                   'RUN /usr/sbin/u30pro-panel-control wifi-off'])
+
     def test_fast_buttons_advance_across_pages_in_both_directions(self):
         self.check_case(1)
 
@@ -153,6 +198,23 @@ int main(int argc, char **argv) {
     def test_button_supersedes_unreleased_touch(self):
         self.check_case(5)
 
+    def test_unmapped_fast_events_all_navigate(self):
+        self.check_case(13)
+
+    def test_unmapped_power_repeats_immediately_wake_and_sleep(self):
+        self.check_case(14)
+
+    def test_configured_double_expires_at_250_ms(self):
+        result = subprocess.run([str(self.binary), '15'],capture_output=True,text=True,timeout=15)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertNotIn('key-double',result.stdout)
+
+    def test_disabling_double_drops_armed_history(self):
+        self.check_case(16)
+
+    def test_band_labels_have_one_suffix(self):
+        self.check_case(12)
+
     def test_normal_animation_commits_once(self):
         self.check_case(6)
 
@@ -160,19 +222,19 @@ int main(int argc, char **argv) {
     def test_custom_power_short_preserves_power_hold(self):
         result = subprocess.run([str(self.binary), '7'], capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.count('RUN /usr/sbin/u30pro-panel-control key-power-short'), 1)
+        self.assertEqual(result.stdout.count('RUN /usr/sbin/u30pro-panel-control key-power-short'), 0)
 
     def test_default_none_dark_screen_and_pin_guard(self):
         result = subprocess.run([str(self.binary), '8'], capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.count('RUN /usr/sbin/u30pro-panel-control key-short'), 1)
+        self.assertEqual(result.stdout.count('RUN /usr/sbin/u30pro-panel-control key-short'), 0)
 
 
-    def test_double_click_suppresses_single_and_triple_has_one_single(self):
+    def test_double_click_keeps_first_fixed_single_and_never_runs_custom_single(self):
         result = subprocess.run([str(self.binary), '9'], capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.count('RUN /usr/sbin/u30pro-panel-control key-double'), 1)
-        self.assertEqual(result.stdout.count('RUN /usr/sbin/u30pro-panel-control key-short'), 1)
+        self.assertEqual(result.stdout.count('RUN /usr/sbin/u30pro-panel-control key-short'), 0)
 
     def test_power_hold_cancels_pending_click_without_custom_execution(self):
         result = subprocess.run([str(self.binary), '10'], capture_output=True, text=True, timeout=15)

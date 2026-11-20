@@ -89,7 +89,7 @@ def load_layout(config, workspace=None):
     paths = {}
     for key in ('kernel_source', 'kernel_objects', 'input_archive', 'input_manifest',
                 'boot_templates', 'busybox', 'at_transport',
-                'maintenance', 'theme', 'installer_artifacts', 'lpac_apks','bluetooth_decoder'):
+                'maintenance', 'theme', 'installer_artifacts', 'lpac_apks','wifi_apks','bluetooth_decoder'):
         path = Path(data[key]).expanduser()
         if not path.is_absolute():
             raise ValueError('Registered path must be absolute: ' + key)
@@ -120,6 +120,7 @@ def check_inputs(paths):
         raise ValueError('Missing registered inputs (nothing downloaded/copied):\n' + '\n'.join(missing))
     source = paths['kernel_source']
     runpy.run_path(str(TOP/'openwrt/lpac-state.py'))['inspect'](paths['lpac_apks'])
+    runpy.run_path(str(TOP/'openwrt/wifi-sae-state.py'))['inspect'](paths['wifi_apks'])
     runpy.run_path(str(TOP/'tools/ble-decoder/build.py'))['check'](paths['bluetooth_decoder'])
     makefile = (source / 'Makefile').read_text(encoding='utf-8')
     version = [re.search(r'^' + key + r'\s*=\s*(\d+)\s*$', makefile, re.M) for key in ('VERSION', 'PATCHLEVEL', 'SUBLEVEL')]

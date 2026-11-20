@@ -1,0 +1,6 @@
+#!/bin/sh
+case ${1:-}:${2:-} in
+    list:) echo '{"status":{},"start":{"action":"String","ssid":"String","password":"String","encryption":"String"}}';;
+    call:status|call:start) exec /usr/libexec/unisoc-modem/wifi-relay "$2";;
+    *) echo '{"ok":false,"error":"invalid_relay_action"}';;
+esac

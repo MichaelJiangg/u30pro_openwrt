@@ -18,7 +18,7 @@ function selected(c) {
 }
 export function status(c,bus) {
     let s=selected(c), configured=length(s?.ssid || '')>0;
-    let result={configured,section:s?.['.name'],enabled:configured && s.disabled!='1',
+    let result={configured,section:s?.['.name'],enabled:configured && s.disabled!='1' && c.get('wireless',s.device,'disabled')!='1',
         cfg:s?.ssid || '',ssid:'',state:0,device:s?.ifname || 'wlan1',address:null};
     if(!result.enabled)return result;
     result.state=1;
@@ -26,19 +26,24 @@ export function status(c,bus) {
     for(let i in radio?.interfaces || [])if(i.section==s['.name'])result.device=i.ifname;
     let network=s.network;
     if(type(network)=='array')network=network[0];
+    let association=bus.call('iwinfo','info',{device:result.device});
+    if(association?.ssid!=s.ssid || !association.bssid || association.bssid=='00:00:00:00:00:00')return result;
     if(type(network)=='string' && match(network,/^[A-Za-z0-9_]+$/)) {
         let link=bus.call('network.interface.'+network,'status',{}) || {};
-        if(link.up && length(link['ipv4-address'] || [])) {
-            result.state=2;result.ssid=s.ssid;result.address=link['ipv4-address'][0].address;
+        let addresses=[...(link['ipv4-address'] || []),...(link['ipv6-address'] || [])];
+        if(link.up && length(addresses)) {
+            result.state=2;result.ssid=s.ssid;result.address=addresses[0].address;
         }
     }
     return result;
 };
 function check_pending(c) {
-    if(length(c.changes('wireless') || {}))die('Resolve unsaved wireless changes first / 请先保存或撤销无线页面的更改');
+    for(let config in ['wireless','network','firewall'])
+        if(length(c.changes(config) || {}))die('Resolve unsaved network changes first / 请先保存或撤销网络页面的更改');
 }
 function apply(c,bus) {
-    if(!c.commit('wireless'))die('Cannot save wireless settings / 无法保存无线配置');
+    for(let config in ['network','firewall','wireless'])
+        if(length(c.changes(config) || {}) && !c.commit(config))die('Cannot save network settings / 无法保存网络配置');
     bus.call('network','reload',{});
     // A successful reload is allowed to return no body; the ubus error is
     // authoritative, as in the shared APN reconnect implementation.
@@ -46,7 +51,6 @@ function apply(c,bus) {
     return {ok:true,pending:true};
 }
 export function dispatch(c,bus,action,args) {
-    let s=selected(c);
     if(action=='status')return status(c,bus);
     if(action=='scan') {
         let iface=c.get('unisoc_modem','main','wifi_device') || 'wlan0';
@@ -54,19 +58,32 @@ export function dispatch(c,bus,action,args) {
         if(found==null)die('Wireless scan failed / 无线扫描失败');
         return {ok:true,results:found.results || []};
     }
+    let s=selected(c);
     check_pending(c);
     if(action=='connect') {
-        let ssid=args[0], password=args[1] || '';
+        let ssid=args[0], password=args[1] || '', encryption=args[2] || (password==''?'none':match(password,/^[0-9A-Fa-f]{64}$/)?'psk2':'sae-mixed');
         if(type(ssid)!='string' || length(ssid)<1 || length(ssid)>32 || index(ssid,'\x00')>=0 || match(ssid,/[\r\n]/))
             die('Invalid SSID / 热点名称无效');
         if(type(password)!='string' || (password!='' &&
             !((length(password)>=8 && length(password)<=63 && index(password,'\x00')<0 && !match(password,/[\r\n]/)) || match(password,/^[0-9A-Fa-f]{64}$/))))
             die('Invalid Wi-Fi key / Wi-Fi 密码无效');
+        if(!(encryption in ['none','psk2','sae','sae-mixed','owe']) ||
+            ((encryption=='none' || encryption=='owe') && password!='') ||
+            ((encryption=='psk2' || encryption=='sae' || encryption=='sae-mixed') && password=='') ||
+            (encryption!='psk2' && length(password)==64))die('Invalid Wi-Fi security / Wi-Fi 加密设置无效');
         let radio=c.get('unisoc_modem','main','wifi_radio') || 'radio0';
         if(c.get('wireless',radio)!='wifi-device')die('Wireless radio unavailable / 无线电不存在');
         if(!s) {
             if(c.get('wireless','wwan')!=null)die('The wwan section is already used / wwan 配置节已被占用');
-            if(c.get('network','wwan')!='interface')die('Client uplink is unavailable / 客户端上行接口不存在');
+            if(c.get('network','wwan')==null) {
+                c.set('network','wwan','interface');c.set('network','wwan','proto','dhcp');c.set('network','wwan','metric','40');
+            } else if(c.get('network','wwan')!='interface')die('Client uplink is unavailable / 客户端上行接口不存在');
+            let zone=null;
+            c.foreach('firewall','zone',z=>{if(z.name=='wan')zone=z;});
+            if(!zone)die('WAN firewall zone unavailable / WAN 防火墙区域不存在');
+            let networks=zone.network || [];
+            if(type(networks)=='string')networks=split(networks,' ');
+            if(index(networks,'wwan')<0)c.set('firewall',zone['.name'],'network',[...networks,'wwan']);
             c.set('wireless','wwan','wifi-iface');
             c.set('wireless','wwan','mode','sta');
             c.set('wireless','wwan','device',radio);
@@ -75,7 +92,7 @@ export function dispatch(c,bus,action,args) {
             s=c.get_all('wireless','wwan');
         }
         c.set('wireless',s['.name'],'ssid',ssid);
-        c.set('wireless',s['.name'],'encryption',password==''?'none':match(password,/^[0-9A-Fa-f]{64}$/)?'psk2':'sae-mixed');
+        c.set('wireless',s['.name'],'encryption',encryption);
         if(password=='')c.delete('wireless',s['.name'],'key');
         else c.set('wireless',s['.name'],'key',password);
         c.set('wireless',s['.name'],'disabled','0');

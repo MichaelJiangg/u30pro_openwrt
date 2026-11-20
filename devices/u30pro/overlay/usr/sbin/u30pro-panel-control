@@ -19,6 +19,10 @@ case ${1:-} in
     key-short|key-long|key-double)
         press=${1#key-}
         exec /usr/libexec/unisoc-modem/buttons run function "$press" ;;
+    wifi-on|wifi-off)
+        # Apply the user's requested state, rather than toggling a second time
+        # from a different snapshot while STA/AP interfaces are being reloaded.
+        exec /usr/libexec/unisoc-modem/hotspot "${1#wifi-}" ;;
     wifi-toggle)
         # The installer creates ap0; users may rename the AP section. Resolve
         # exactly the same selected AP as the dashboard, never a fixed section.

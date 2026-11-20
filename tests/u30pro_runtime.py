@@ -74,6 +74,12 @@ class Runtime(unittest.TestCase):
                 self.assertIn('START=13', text)
                 text = text.replace('/run/mu300/android-slot',str(root/'slot'))
                 text = text.replace('/usr/sbin/u30pro-nodes --populate-nodes','populate')
+                # These owners have their own fixtures; this test covers the
+                # caller's disk/slot ordering and must never run host services.
+                text = text.replace('/usr/sbin/u30pro-product-identity --restore', ':')
+                text = text.replace('/usr/libexec/unisoc-modem/product-form boot', ':')
+                text = text.replace('/usr/sbin/u30pro-sim-preinit', ':')
+                text = text.replace('/run/u30pro-cp-started',str(root/'cp-started'))
                 text = text.replace('/opt/mu300/lib/storage.sh',str(root/'storage'))
                 text = text.replace('/dev/block/by-name/',str(root)+'/').replace('[ -b ', '[ -f ')
                 script='''populate() { echo POPULATE; }
@@ -101,6 +107,7 @@ logger() { echo "ERROR $*"; }
                 text=(OVERLAY/'etc/init.d/mu300-hw').read_text()
                 text=text.replace('/usr/sbin/u30pro-nodes --populate-nodes','populate')
                 text=text.replace('/usr/sbin/u30pro-usb-boot','usb_boot')
+                text=text.replace('/usr/libexec/u30pro-wifi-ifname', ':')
                 text=text.replace('/opt/mu300/bin/zram-start','zram')
                 text=text.replace('/opt/mu300/bin/openwrt-wifi-config','configure_wifi').replace('/sbin/wifi up','start_wifi')
                 script='''populate() { :; }
@@ -129,6 +136,19 @@ logger() { echo ERROR >> "$LOG"; }
                 else:
                     self.assertNotEqual(result.returncode,0)
                     self.assertNotIn('AP ',result.stdout)
+
+    def test_screen_explicit_state_is_not_inverted_from_another_snapshot(self):
+        for action in ('on', 'off'):
+            with self.subTest(action=action), tempfile.TemporaryDirectory() as folder:
+                helper=Path(folder)/'hotspot'
+                helper.write_text('#!/bin/sh\n[ "$1" != fields ] || exit 99\necho "AP $1"\n')
+                helper.chmod(0o755)
+                text=(OVERLAY/'usr/sbin/u30pro-panel-control').read_text().replace(
+                    '/usr/libexec/unisoc-modem/hotspot',str(helper))
+                result=subprocess.run(['sh','-c','set -- wifi-'+action+'\n'+text],
+                                      capture_output=True,text=True)
+                self.assertEqual(result.returncode,0,result.stderr)
+                self.assertEqual(result.stdout.strip(),'AP '+action)
 
     def test_factory_import_never_mounts_writable_or_changes_factory_files(self):
         for bad_mac in (False,True):

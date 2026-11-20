@@ -1,0 +1,7 @@
+{
+  "u30pro-wifi-relay": {
+    "description": "Manage the Pro netifd Wi-Fi client without changing hotspot settings",
+    "read": { "ubus": { "u30pro-wifi-relay": ["status"] } },
+    "write": { "ubus": { "u30pro-wifi-relay": ["start"] } }
+  }
+}

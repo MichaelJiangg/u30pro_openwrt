@@ -1,6 +1,7 @@
 {
   "format": 1,
   "lpac_apks": "{workspace}/artifacts/lpac",
+  "wifi_apks": "{workspace}/artifacts/u30pro-wifi",
   "bluetooth_decoder": "{workspace}/artifacts/bluetooth-decoder",
   "family": "u30pro",
   "workspace": "~/openwrt-build",

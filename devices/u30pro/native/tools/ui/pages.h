@@ -794,6 +794,15 @@ static void page_traffic(Cv *c)
 /* ------------------------------------------------------------------ WI-FI */
 /* The hotspot (its name as a ticker on a card that shows the QR code, a switch, band/channel/clients) and below it the Wi-Fi relay (a switch and
  * its state; the network to join and its password are set in the web interface, typing them on this screen is not practical).  It scrolls. */
+/* Feed generations use both "5g" and "5 GHz". Never append a second G. */
+static const char *wifi_band_label(const char *band)
+{
+    if (band[0] == '5') return "5G";
+    if (band[0] == '2') return "2.4G";
+    if (band[0] == '6') return "6G";
+    return "";
+}
+
 static void page_wifi(Cv *c)
 {
 	const Theme *th = TH();
@@ -816,7 +825,7 @@ static void page_wifi(Cv *c)
 	setting_toggle(c, y, H_WIFI_TOGGLE, "热点", g_ms < wifi_busy_until ? wifi_want : D.wifi_active, g_ms < wifi_busy_until);
 	y += 44 + 26;
 	/* "5 GHz" -> "5G" keeps the line short */
-	if (D.channel) snprintf(b, sizeof b, "%.*s%s%sCH%d · %d 台设备", (int)strcspn(D.wifi_band, " "), D.wifi_band, D.wifi_band[0] ? "G" : "", D.wifi_band[0] ? " · " : "", D.channel, D.nclients);
+	if (D.channel) snprintf(b, sizeof b, "%s%sCH%d · %d 台设备", wifi_band_label(D.wifi_band), wifi_band_label(D.wifi_band)[0] ? " · " : "", D.channel, D.nclients);
 	else snprintf(b, sizeof b, "%d 台设备", D.nclients);
 	gx_fit(FN14, b, 150, fit, sizeof fit);
 	TXTC(c, FN14, 120, y, fit, C_DIM);

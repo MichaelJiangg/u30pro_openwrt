@@ -225,3 +225,6 @@ msgstr "Eski numara ve anahtar sözcük engelleme listeleri devre dışıdır. E
 
 msgid "流量管理"
 msgstr "Veri yönetimi"
+
+msgid "Wi-Fi 中继"
+msgstr "Wi-Fi bağlantısı"

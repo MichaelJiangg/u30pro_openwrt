@@ -56,6 +56,7 @@ def kernel_checks():
 
 def wifi_checks():
     """Check already-staged output without patching or refreshing receipts."""
+    runpy.run_path(str(TOP/'openwrt/stage-wifi.py'))['audit'](ROOT)
     scope=runpy.run_path(str(TOP/'tools/stage-wifi-patches.py'))
     target=ROOT/scope['RELATIVE']
     records=json.loads((ROOT.parent/'shared-patches.json').read_text())
@@ -183,6 +184,14 @@ def main(include_modem=True):
     # These are production inputs, never files recovered from a hotfixed device.
     # Compare the assembled root too: source-only syntax tests miss stale staging.
     inputs={
+        'usr/libexec/unisoc-modem/wifi-relay':'devices/u30pro/overlay/usr/libexec/unisoc-modem/wifi-relay',
+        'usr/libexec/rpcd/u30pro-wifi-relay':'devices/u30pro/overlay/usr/libexec/rpcd/u30pro-wifi-relay',
+        'usr/share/ucode/mu300/wifi-relay.uc':'devices/u30pro/overlay/usr/share/ucode/mu300/wifi-relay.uc',
+        'usr/share/ucode/mu300/wifi-native.uc':'devices/u30pro/overlay/usr/share/ucode/mu300/wifi-native.uc',
+        'usr/share/luci/menu.d/u30pro-wifi-relay.json':'devices/u30pro/overlay/usr/share/luci/menu.d/u30pro-wifi-relay.json',
+        'usr/share/rpcd/acl.d/u30pro-wifi-relay.json':'devices/u30pro/overlay/usr/share/rpcd/acl.d/u30pro-wifi-relay.json',
+        'www/luci-static/resources/view/mu300/wifi-relay.js':'devices/u30pro/overlay/www/luci-static/resources/view/mu300/wifi-relay.js',
+
         'lib/preinit/31_unisoc_fast_boot':'openwrt/overlay/lib/preinit/31_unisoc_fast_boot',
         'usr/libexec/unisoc-modem/ttl-engine':'openwrt/luci-app-mu300/root/usr/libexec/unisoc-modem/ttl-engine',
         'usr/libexec/unisoc-modem/ttl':'openwrt/luci-app-mu300/root/usr/libexec/unisoc-modem/ttl',
@@ -224,6 +233,8 @@ def main(include_modem=True):
         'opt/mu300/bin/mu300-radio-allowed':'rootfs/overlay/opt/mu300/bin/mu300-radio-allowed',
         'usr/libexec/unisoc-modem/data-sim':'openwrt/luci-app-mu300/root/usr/libexec/unisoc-modem/data-sim',
         'usr/libexec/unisoc-modem/traffic':'openwrt/luci-app-mu300/root/usr/libexec/unisoc-modem/traffic',
+        'usr/libexec/unisoc-modem/traffic-policy':'openwrt/luci-app-mu300/root/usr/libexec/unisoc-modem/traffic-policy',
+        'usr/libexec/unisoc-modem/traffic-policy.uc':'openwrt/luci-app-mu300/root/usr/libexec/unisoc-modem/traffic-policy.uc',
         'usr/libexec/unisoc-modem/traffic-core.uc':'openwrt/luci-app-mu300/root/usr/libexec/unisoc-modem/traffic-core.uc',
         'usr/libexec/unisoc-modem/traffic-csv.uc':'openwrt/luci-app-mu300/root/usr/libexec/unisoc-modem/traffic-csv.uc',
         'www/luci-static/resources/mu300/traffic-csv.js':'openwrt/luci-app-mu300/htdocs/luci-static/resources/mu300/traffic-csv.js',

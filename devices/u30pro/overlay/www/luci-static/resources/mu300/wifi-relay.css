@@ -1,0 +1,68 @@
+/* Compact presentation shared in spirit with the SIP plugin, independent of it. */
+.relay {
+ --relay-line:var(--line,var(--hairline,#8b949e38));
+ --relay-surface:var(--surface,Canvas);
+ --relay-control:var(--control-bg,var(--surface-sunken,var(--relay-surface)));
+ --relay-muted:var(--text-muted,#78828e);
+ --relay-accent:var(--brand,#14897f);
+ --relay-soft:color-mix(in srgb,var(--relay-accent) 7%,var(--relay-surface));
+ box-sizing:border-box;width:100%;max-width:1000px;margin:0 auto;
+ color:var(--text,CanvasText);font-size:13px;line-height:1.55;
+}
+.relay * {box-sizing:border-box}
+.relay [hidden] {display:none!important}
+.relay h2,.relay h3 {color:inherit;border:0;padding:0;margin:0}
+.relay h2 {font-size:18px;line-height:1.4;letter-spacing:-.02em}
+.relay h3 {font-size:13px;font-weight:650;line-height:1.5}
+.relay p {margin:0}
+.relay small,.relay .relay-note {color:var(--relay-muted);font-size:12px;line-height:1.65}
+.relay .relay-header {display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:18px;padding-bottom:16px;border-bottom:1px solid var(--relay-line)}
+.relay .relay-header>div {min-width:0}
+.relay .relay-header p {margin-top:5px;max-width:670px}
+.relay .relay-header>button {flex-shrink:0}
+.relay .relay-panel {min-width:0;padding:18px;border:1px solid var(--relay-line);border-radius:10px;background:var(--relay-surface)}
+.relay .relay-connection {margin-bottom:16px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px 24px;align-items:center}
+.relay .relay-connection-copy {min-width:0}
+.relay .relay-state-row {display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+.relay .relay-state {display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border-radius:5px;background:color-mix(in srgb,currentColor 6%,transparent);color:var(--relay-muted);font-size:11px;font-weight:550}
+.relay .relay-state::before {content:'';width:5px;height:5px;border-radius:50%;background:currentColor}
+.relay .relay-state[data-state=connected] {color:var(--success,#21856a);background:color-mix(in srgb,var(--success,#21856a) 9%,transparent)}
+.relay .relay-state[data-state=connecting] {color:var(--warning,#ab751d);background:color-mix(in srgb,var(--warning,#ab751d) 9%,transparent)}
+.relay .relay-saved {display:block;font-size:17px;font-weight:650;line-height:1.5;overflow-wrap:anywhere;letter-spacing:-.01em}
+.relay .relay-address {display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;margin-top:3px;color:var(--relay-muted);font-size:11px;font-variant-numeric:tabular-nums}
+.relay .relay-actions {display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.relay .relay-message {grid-column:1/-1;font-size:12px;overflow-wrap:anywhere;padding:9px 12px;border:1px solid color-mix(in srgb,var(--relay-accent) 20%,var(--relay-line));border-radius:7px;background:var(--relay-soft)}
+.relay .relay-grid {display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:16px;align-items:start}
+.relay .relay-grid h3+p {margin-top:5px}
+.relay .relay-section-head {display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}
+.relay .relay-list {max-height:414px;overflow:auto;overscroll-behavior:contain;margin-top:16px;scrollbar-gutter:stable}
+.relay .relay-empty {padding:30px 14px;text-align:center;border:1px dashed var(--relay-line);border-radius:8px}
+.relay .relay-empty strong {display:block;font-size:12px;font-weight:550;margin-bottom:5px}
+.relay .relay-network {display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--relay-line)}
+.relay .relay-network:first-child {padding-top:0}
+.relay .relay-network:last-child {border:0;padding-bottom:0}
+.relay .relay-network-info {min-width:0;flex:1;overflow-wrap:anywhere}
+.relay .relay-network strong {display:block;font-size:13px;font-weight:550}
+.relay .relay-network small {display:block;font-size:11px;margin-top:3px}
+.relay .relay-signal {color:var(--relay-accent);width:20px;height:20px;flex-shrink:0}
+.relay .relay-network button {flex-shrink:0;min-height:30px;padding:4px 9px;font-size:11px}
+.relay .relay-fields {display:grid;gap:14px;margin:16px 0}
+.relay label {display:flex;flex-direction:column;gap:6px;min-width:0;font-size:12px;font-weight:550;margin:0}
+.relay input,.relay select {display:block;width:100%;min-width:0;max-width:100%;min-height:34px;margin:0;padding:6px 10px;border:1px solid var(--relay-line);border-radius:7px;box-shadow:none;background:var(--relay-control);color:inherit;font:inherit;line-height:1.5}
+.relay button {display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:34px;height:auto;max-width:100%;margin:0;padding:6px 12px;border:1px solid var(--relay-line);border-radius:7px;box-shadow:none;background:var(--relay-control);color:inherit;font:inherit;font-size:12px;line-height:1.5;text-align:center;white-space:normal;cursor:pointer}
+.relay button:not(:disabled):hover {background:var(--relay-soft);border-color:color-mix(in srgb,var(--relay-accent) 35%,var(--relay-line))}
+.relay .relay-primary {background:var(--relay-accent);border-color:var(--relay-accent);color:#fff}
+.relay .relay-primary:not(:disabled):hover {background:color-mix(in srgb,var(--relay-accent) 88%,#000);border-color:var(--relay-accent)}
+.relay button:disabled {opacity:.45;cursor:not-allowed}
+.relay :is(button,input,select,a):focus-visible {outline:2px solid var(--relay-accent);outline-offset:3px}
+.relay .relay-routing {margin-top:18px;padding-top:14px;border-top:1px solid var(--relay-line)}
+.relay .relay-routing a {display:inline-block;margin-top:8px;color:var(--relay-accent);font-size:12px;text-decoration:none}
+@media(max-width:700px) {
+ .relay .relay-header {align-items:flex-start;gap:12px}
+ .relay .relay-grid {grid-template-columns:1fr}
+ .relay .relay-panel {padding:16px}
+ .relay .relay-connection {grid-template-columns:1fr;gap:14px}
+ .relay .relay-list {max-height:320px}
+ .relay button,.relay input,.relay select {min-height:38px}
+ .relay .relay-network button {min-height:34px}
+}

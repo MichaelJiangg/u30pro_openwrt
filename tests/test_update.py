@@ -122,6 +122,37 @@ class Update(ShellTest):
             shutil.rmtree(old)
             shutil.rmtree(self.disk / 'openwrt.old')
 
+    def test_charge_boot_first_and_subsequent_update_keep_saved_radio_states(self):
+        overlay=TOP/'devices/u30pro/overlay'
+        names=('etc/init.d/u30pro-charge-mode','usr/libexec/u30pro-charge-mode',
+               'usr/share/ucode/mu300/charger-boot.uc')
+        for shell in self.each_shell():
+            old, _ = self.vendor_update_fixture()
+            user={'etc/config/wireless':b'user AP and relay settings',
+                  'etc/config/unisoc_modem':b'user disabled SIM1 and enabled SIM2 RF',
+                  'etc/unisoc-bluetooth/config.json':b'{"autostart":true,"alias":"mine"}',
+                  'etc/config/mu300-charge':b'user limits, pause and power_on',
+                  'etc/config/u30pro_native_control':b'user wallpaper and lock'}
+            for name,data in user.items():
+                path=old/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(data)
+            for iteration in range(2):
+                stage=self.disk/'.mu300-update'
+                stage.mkdir(exist_ok=True)
+                with tarfile.open(stage/'mu300-openwrt-rootfs.tar.gz','w:gz') as archive:
+                    files={'sbin/init':b'#!/bin/sh\n',**{name:(overlay/name).read_bytes()+b'\n'*iteration for name in names}}
+                    for name,data in files.items():
+                        entry=tarfile.TarInfo(name);entry.mode=0o755;entry.size=len(data)
+                        archive.addfile(entry,io.BytesIO(data))
+                    entry=tarfile.TarInfo('etc/rc.d/S09u30pro-charge-mode')
+                    entry.type=tarfile.SYMTYPE;entry.linkname='../init.d/u30pro-charge-mode';archive.addfile(entry)
+                r=self.up(shell,'sync() { :; }; is_root() { false; }; apply_one openwrt charge-new')
+                self.assertEqual(r.returncode,0,r.stdout+r.stderr)
+                for name,data in user.items():self.assertEqual((old/name).read_bytes(),data)
+                for name in names:self.assertEqual((old/name).read_bytes(),(overlay/name).read_bytes()+b'\n'*iteration)
+                self.assertTrue((old/'etc/rc.d/S09u30pro-charge-mode').is_symlink())
+                shutil.rmtree(self.disk/'openwrt.old')
+            shutil.rmtree(old)
+
     def test_wifi_relay_first_and_subsequent_update_keep_user_networks(self):
         overlay=TOP/'devices/u30pro/overlay'
         names=('usr/libexec/unisoc-modem/wifi-relay','usr/libexec/rpcd/u30pro-wifi-relay',

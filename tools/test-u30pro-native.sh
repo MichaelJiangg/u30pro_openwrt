@@ -34,6 +34,9 @@ python3 "$top/tests/u30pro_wallpaper_scenes.py"
 python3 "$top/tests/u30pro_wallpaper_tiles.py"
 python3 "$top/tests/u30pro_high_refresh.py"
 python3 "$top/tests/u30pro_charging_animation.py"
+python3 "$top/tests/u30pro_charge_screen.py"
+python3 "$top/tests/test_u30pro_charge_boot.py"
+python3 "$top/tests/test_u30pro_charge_delivery.py"
 python3 "$top/tests/u30pro_glass_colour.py"
 python3 "$top/tests/u30pro_uninstall_storage.py"
 test_busybox=$(python3 -c 'import runpy,sys; print(runpy.run_path(sys.argv[1])["settings"]()[2]["busybox"])' "$top/tools/build-settings.py")
@@ -43,6 +46,7 @@ python3 -m unittest discover -s "$top/tests" -p test_power_supply.py
 python3 "$top/tests/u30pro_charge_sources.py"
 python3 "$top/tests/u30pro_pd9.py"
 python3 "$top/tests/u30pro_charge_profile.py"
+python3 "$top/tests/u30pro_fgu_accounting.py"
 python3 "$top/tests/u30pro_usb_roles.py"
 python3 "$top/tests/test_usb_link.py"
 python3 -m unittest discover -s "$top/tests" -p test_u30pro_nfc.py

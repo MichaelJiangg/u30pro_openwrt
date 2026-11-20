@@ -7,7 +7,7 @@ JS=TOP/'openwrt/luci-app-mu300/htdocs/luci-static/resources'
 sources={k:(JS/p).read_text(encoding='utf8') for k,p in {
     'common':'mu300/common.js','charge':'mu300/charge.js','battery':'view/mu300/battery.js'}.items()}
 with sync_playwright() as p:
-    browser=p.chromium.launch(executable_path='C:/Program Files/Google/Chrome/Application/chrome.exe')
+    browser=p.chromium.launch()
     for theme in ('aurora','bootstrap'):
         for dark in (False,True):
             for lang in ('zh-cn','en','tr'):
@@ -54,6 +54,13 @@ with sync_playwright() as p:
                     }''',dict(sources=sources,theme=theme,dark=dark,lang=lang))
                     page.wait_for_function("document.querySelector('.mud-battery-status').getAttribute('aria-busy')==='false'")
                     assert page.locator('.mud-battery-grid>.mud-card').count()==4
+                    assert page.evaluate('app.cards.state.sub.textContent') == '-2.56 W · -650 mA · 3.94 V'
+                    # Paused charging can still have either measured direction; never
+                    # turn a discharge magnitude into apparent battery input power.
+                    for mw, ma, expected in ((100,24,'+0.10 W · +24 mA'),(-100,-24,'-0.10 W · -24 mA'),(0,0,'0.00 W · 0 mA'),(None,None,'— W · — mA')):
+                        page.evaluate('([mw,ma])=>{const s=sample("full");Object.assign(s.current,{mw,ma,online:true,st:"P"});app.paint(s);}',[mw,ma])
+                        assert page.evaluate('app.cards.state.sub.textContent').startswith(expected)
+                    page.evaluate('app.paint(sample("full"))')
                     assert page.locator('.mud-charge-card').evaluate('e=>e===e.parentNode.lastElementChild')
                     assert page.locator('.charge-line').count()>=2, 'missing-data gap must split the line'
                     assert page.locator('.mud-battery-meter>span').evaluate('e=>e.style.width')=='76%'

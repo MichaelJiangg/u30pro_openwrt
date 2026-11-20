@@ -332,10 +332,21 @@ static void state_write(void)
 
 static void compose(void);
 
+static void charger_refresh(void)
+{
+	// Supply registration can complete after the early charging screen starts.
+	// Never turn an unavailable sample into a real 0% or a paused-charge claim.
+	if (!bat_dir[0]) battery_find();
+	collect_battery();
+	if (!D.bat_ok) { D.bat_pct = -1; D.charging = D.full = 0; }
+	dirty = 1;
+}
+
 /* sleep switches the display off (display_power(): a backlight level of 0 alone leaves the light on); waking draws the current state
  * into the buffer the display will show before switching it back on, so the old frame never comes back */
 static void wake(void)
 {
+	if (charger_only) charger_refresh();
 	if (asleep) {
 		asleep = 0;
 		g_ms = now_ms();
@@ -370,6 +381,7 @@ static void power_observe(int online)
 
 	power_known = 1;
 	power_online = D.chg_online = online;
+	if (charger_only) { charger_refresh(); return; }
 	if (!changed) return;
 	collect_battery();
 	toast_show(online ? "已连接外部电源" : "已断开外部电源", online ? C_OK : C_WARN, 3000);
@@ -385,7 +397,7 @@ static void power_snapshot(void)
 
 static int power_uevent(const char *data, size_t len, unsigned sender, int truncated)
 {
-	int action = 0, subsystem = 0, supply = 0, online = -1;
+	int action = 0, subsystem = 0, supply = 0, battery = 0, online = -1;
 
 	/* Userspace netlink packets, truncated records and non-NUL-terminated
 	 * properties are not authoritative charger notifications. */
@@ -396,11 +408,18 @@ static int power_uevent(const char *data, size_t len, unsigned sender, int trunc
 
 		if (n == len - pos) return 0;
 		if (!strcmp(item, "ACTION=change")) action = 1;
+		else if (charger_only && !strcmp(item, "ACTION=add")) action = 1;
 		else if (!strcmp(item, "SUBSYSTEM=power_supply")) subsystem = 1;
 		else if (!strcmp(item, "POWER_SUPPLY_NAME=u30pro-charger-master")) supply = 1;
+		else if (!strcmp(item, "POWER_SUPPLY_NAME=u30pro-battery")) battery = 1;
 		else if (!strcmp(item, "POWER_SUPPLY_ONLINE=0")) online = 0;
 		else if (!strcmp(item, "POWER_SUPPLY_ONLINE=1")) online = 1;
 		pos += n + 1;
+	}
+	if (charger_only && action && subsystem && (supply || battery)) {
+		charger_refresh();
+		if (supply && online >= 0) power_observe(online);
+		return 1;
 	}
 	if (!action || !subsystem || !supply || online < 0) return 0;
 	power_observe(online);
@@ -1200,6 +1219,13 @@ static void key_click_tick(long now)
 }
 static void ui_key_event(int code, long duration_ms)
 {
+	if (charger_only) {
+		// Boot/hold/unplug belong to the charging controller's evdev helper.
+		if (code == 116 && duration_ms >= 0 && duration_ms < POWER_HOLD_MS) {
+			if (asleep) wake(); else go_sleep();
+		}
+		return;
+	}
 	if (code != 116 && code != 102) { ui_key(code, duration_ms); return; }
 	int i = code == 102;
 	long now = now_ms(), hold = i ? key_long_ms : POWER_HOLD_MS;
@@ -1367,6 +1393,7 @@ static int smooth_busy(void)
 static void compose(void)
 {
 	nhits = 0;
+	if (charger_only) { draw_charger(&scr); return; }
 	tile_moving = 0;
 	want_charger = 0;
 	scroll_live = -1;
@@ -1875,6 +1902,60 @@ static void capture(void)
 static volatile sig_atomic_t running = 1;
 static void finish(int sig) { (void)sig; running = 0; }
 
+/* KMS/evdev renderer only. The ucode boot gate owns power-on and poweroff.
+ * Never connect to ubus or load the ordinary feeder in this mode. */
+static int charger_display(void)
+{
+	charger_only = 1;
+	keys_open();
+	charger_refresh();
+	power_events_open();
+	last_act = g_ms = now_ms();
+	long next_soc = g_ms + 30000, next_frame = 0;
+	dirty = 1;
+	draw_charger(&scr);
+	present_off(&scr);
+	display_power(1);
+	backlight_level(bright_max);
+	while (running) {
+		g_ms = now_ms();
+		if (flip_pending) flip_in_flight();
+		keys_read();
+		if (!asleep && g_ms >= next_soc) {
+			charger_refresh(); next_soc = g_ms + 30000;
+		}
+		if (!asleep && g_ms - last_act >= 10000) go_sleep();
+		if (!asleep && !flip_pending && (dirty ||
+		    (D.charging && !D.full && D.bat_pct < 100 && g_ms >= next_frame))) {
+			draw_charger(&scr); present(&scr); dirty = 0; next_frame = g_ms + 50;
+		}
+		// Only visible animation, screen-off and visible SOC deadlines wake us.
+		// Once asleep this blocks on input, KMS completion or a power uevent.
+		long wait = -1;
+		if (!asleep) {
+			wait = last_act + 10000 - g_ms;
+			if (next_soc - g_ms < wait) wait = next_soc - g_ms;
+			if (D.charging && !D.full && D.bat_pct < 100 && next_frame - g_ms < wait)
+				wait = next_frame - g_ms;
+			if (wait < 1) wait = 1;
+		}
+		if (flip_pending && (wait < 0 || flip_at + 250 - g_ms < wait)) {
+			wait = flip_at + 250 - g_ms;
+			if (wait < 1) wait = 1;
+		}
+		struct pollfd p[] = {{.fd=keyfd,.events=POLLIN},
+			{.fd=flip_pending ? fd : -1,.events=POLLIN}, {.fd=powerfd,.events=POLLIN}};
+		if (poll(p, 3, (int)wait) > 0 && (p[2].revents & (POLLIN | POLLERR)))
+			power_events_read();
+	}
+	if (powerfd >= 0) close(powerfd);
+	if (keyfd >= 0) close(keyfd);
+	backlight_level(0);
+	display_power(0);
+	close(fd);
+	return 0;
+}
+
 /* one UI command (ubus u30pro.panel command): "page N", "overlay K ARG", "home", "wake", "toast TEXT", "notice [TEXT]", "fps 0|1", ... -- for
  * tests and the web UI; the next frame is captured to /run/u30pro-screen.ppm */
 static int force_capture;
@@ -1948,10 +2029,10 @@ static void ui_cmd_line(const char *cmd)
 
 int main(int argc, char **argv)
 {
-	if (argc != 2) { fprintf(stderr, "Usage: u30pro-panel probe|test|run\n"); return 2; }
+	if (argc != 2) { fprintf(stderr, "Usage: u30pro-panel probe|test|run|charger\n"); return 2; }
 	int probe = !strcmp(argv[1], "probe"), test = !strcmp(argv[1], "test");
 
-	if (!probe && !test && strcmp(argv[1], "run")) return 2;
+	if (!probe && !test && strcmp(argv[1], "run") && strcmp(argv[1], "charger")) return 2;
 	umask(077);
 	mkdir(UI_RUN, 0700);
 	drm_setup(!probe);
@@ -1964,6 +2045,7 @@ int main(int argc, char **argv)
 	backlight_read_limits();
 	settings_load();
 	ui_init_canvases();
+	if (!strcmp(argv[1], "charger")) return charger_display();
 	if (!test) { keys_open(); touch_open(); }
 	lock_engage();
 	state_write();
@@ -1979,6 +2061,7 @@ int main(int argc, char **argv)
 		bg_fill(&scr, 0, 0, 0);
 		draw_splash(&scr);
 		present(&scr);
+		display_power(1);
 		backlight_level(bright_max);
 	}
 	if (!test) power_events_open();

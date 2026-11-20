@@ -241,10 +241,13 @@ int main(int argc, char **argv)
 	struct pollfd pfd[MAXDEV + 2];
 	int n = 0, opt, charging = 0, ue = -1, out = -1, npfd;
 	char *list = NULL;
+	const char *charging_supply = "/sys/class/power_supply/bq256xx-charger/online";
 
-	while ((opt = getopt(argc, argv, "cl:t:u:")) != -1) {
+	while ((opt = getopt(argc, argv, "cp:l:t:u:")) != -1) {
 		if (opt == 'c')
 			charging = 1;
+		else if (opt == 'p')
+			charging_supply = optarg;
 		else if (opt == 'l')
 			hold = atoll(optarg);
 		else if (opt == 't')
@@ -252,7 +255,7 @@ int main(int argc, char **argv)
 		else if (opt == 'u')
 			list = optarg;
 		else {
-			fprintf(stderr, "usage: mu300-keys [-c] [-l MS] [-t SEC] [-u SUBSYSTEM[,SUBSYSTEM...]]\n");
+			fprintf(stderr, "usage: mu300-keys [-c [-p SUPPLY_ONLINE]] [-l MS] [-t SEC] [-u SUBSYSTEM[,SUBSYSTEM...]]\n");
 			return 2;
 		}
 	}
@@ -296,7 +299,7 @@ int main(int argc, char **argv)
 			return 1;
 		int buffer = 256 * 1024;
 		setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &buffer, sizeof(buffer));
-		return charge_wait(pfd, n, fd, "/sys/class/power_supply/bq256xx-charger/online", hold);
+		return charge_wait(pfd, n, fd, charging_supply, hold);
 	}
 	npfd = n;
 	if (nsub) {

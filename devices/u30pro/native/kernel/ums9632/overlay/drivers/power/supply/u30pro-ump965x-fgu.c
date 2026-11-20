@@ -7,7 +7,8 @@
  *
  * Keep retained coulomb count, interrupts and USER areas. Calibrate the
  * volatile current ADC zero point through its internal input-short switch.
- * SOC is a software estimate (OCV table at start-up, current integration, relax / full / empty corrections).
+ * SOC starts from the selected OCV table, then follows retained hardware
+ * coulomb-count deltas. Only a confirmed charging completion corrects it full.
  * The retained Android percentage in the USER area is never used or written.
  */
 #include <linux/bitfield.h>
@@ -23,7 +24,6 @@
 #include <linux/regmap.h>
 #include <linux/slab.h>
 #include <linux/workqueue.h>
-#include <linux/ktime.h>
 #include "u30pro-battery-profile.h"
 
 #define FGU_MODULE_EN 0x2008
@@ -43,8 +43,6 @@
 struct ump_ntc_point { int uv; int temp; };
 struct ump_ocv_point { int uv; int pct; };
 #define UMP_SOC_PERIOD_MS	2000
-#define UMP_RELAX_UA		30000
-#define UMP_RELAX_SYNC_MS	60000
 struct ump_fgu {
 	struct device *dev;
 	struct regmap *map;
@@ -64,8 +62,8 @@ struct ump_fgu {
 	u32 full_uah, r_uohm, full_uv, full_ua;
 	s64 charge_uah;
 	bool soc_ready;
-	u32 relax_ms;
-	ktime_t last;
+	u64 count_last;
+	s32 count_fraction;
 	struct delayed_work soc_work;
 };
 
@@ -316,16 +314,52 @@ static void ump_soc_clamp(struct ump_fgu *f)
 
 static void ump_soc_init(struct ump_fgu *f)
 {
+	u64 count;
 	int uv, ua = 0, pct;
-	if (!f->ocv_count || !f->full_uah || ump_voltage_uv(f, &uv))
+	if (!f->ocv_count || !f->full_uah || ump_voltage_uv(f, &uv) ||
+	    ump_count_raw(f, &count))
 		return;
 	if (ump_current_ua(f, &ua))
 		ua = 0;
 	pct = ump_ocv_to_pct(f, ump_ocv_uv(f, uv, ua));
 	f->charge_uah = div_s64((s64)f->full_uah * pct, 100);
 	ump_soc_clamp(f);
-	f->last = ktime_get();
+	f->count_last = count;
+	f->count_fraction = 0;
 	f->soc_ready = true;
+}
+
+/* UMP965x BSP: 2 Hz, 15 ADC periods, delta_uAh = delta_count * 500 /
+ * (54 * current_gain). Preserve sub-uAh remainder and signed 36-bit rollover.
+ * Do not reset the hardware counter or infer an interval from one current sample.
+ */
+static s64 ump_count_uah(struct ump_fgu *f, u64 count)
+{
+	s64 delta = sign_extend64(count - f->count_last, 35);
+	s64 uah = div_s64_rem(delta * 500 + f->count_fraction,
+			     54 * f->current_gain, &f->count_fraction);
+	f->count_last = count;
+	return uah;
+}
+
+/* The charger reads this FGU under its own lock. Query it before taking our
+ * mutex, so full qualification cannot introduce a charger/FGU lock inversion.
+ */
+static bool ump_charger_full(void)
+{
+	struct power_supply *charger;
+	union power_supply_propval status, behaviour;
+	bool full = false;
+
+	charger = power_supply_get_by_name("u30pro-charger-master");
+	if (!charger)
+		return false;
+	if (!power_supply_get_property(charger, POWER_SUPPLY_PROP_STATUS, &status) &&
+	    status.intval == POWER_SUPPLY_STATUS_FULL &&
+	    !power_supply_get_property(charger, POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR, &behaviour))
+		full = behaviour.intval == POWER_SUPPLY_CHARGE_BEHAVIOUR_AUTO;
+	power_supply_put(charger);
+	return full;
 }
 
 static void ump_cancel_soc(void *work)
@@ -336,8 +370,8 @@ static void ump_cancel_soc(void *work)
 static void ump_soc_work(struct work_struct *work)
 {
 	struct ump_fgu *f = container_of(work, struct ump_fgu, soc_work.work);
-	ktime_t now = ktime_get();
-	s64 dt_ms = ktime_ms_delta(now, f->last);
+	bool full = ump_charger_full();
+	u64 count;
 	int uv, ua, ret;
 
 	mutex_lock(&f->lock);
@@ -348,21 +382,12 @@ static void ump_soc_work(struct work_struct *work)
 	ret = ump_voltage_uv(f, &uv);
 	if (!ret)
 		ret = ump_current_ua(f, &ua);
+	if (!ret)
+		ret = ump_count_raw(f, &count);
 	if (ret)
 		goto out;
-	f->last = now;
-	f->charge_uah += div_s64((s64)ua * dt_ms, 3600000);
-	if (abs(ua) < UMP_RELAX_UA) {
-		f->relax_ms += dt_ms;
-		if (f->relax_ms >= UMP_RELAX_SYNC_MS) {
-			/* relaxed: pull the counter 1/4 of the way to the OCV estimate each period */
-			s64 target = div_s64((s64)f->full_uah * ump_ocv_to_pct(f, ump_ocv_uv(f, uv, ua)), 100);
-			f->charge_uah += (target - f->charge_uah) / 4;
-		}
-	} else {
-		f->relax_ms = 0;
-	}
-	if (ua > 0 && ua < f->full_ua && uv >= f->full_uv)
+	f->charge_uah += ump_count_uah(f, count);
+	if (full && ua >= 0 && ua < f->full_ua && uv >= f->full_uv)
 		f->charge_uah = f->full_uah;
 	if (uv < 3300000 && ua <= 0)
 		f->charge_uah = min_t(s64, f->charge_uah, div_s64(f->full_uah, 100));

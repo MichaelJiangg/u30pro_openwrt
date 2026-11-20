@@ -1,0 +1,7 @@
+#!/bin/sh /etc/rc.common
+# Block rcS before kmodloader, networking, CP, AIC and Bluetooth start.
+# The PM watchdog owner (S02) remains running throughout charging.
+START=09
+boot() {
+    /usr/bin/ucode /usr/libexec/u30pro-charge-mode
+}

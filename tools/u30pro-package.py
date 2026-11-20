@@ -448,7 +448,7 @@ def finish():
         'network','dnsmasq','odhcpd','firewall','dropbear','rpcd','uhttpd','wpad',
         'cron','sysntpd','done','umount','u30pro-watchdog','u30pro-factory','mu300-cpu-driver','mu300-vendor','mu300-hw',
         'mu300-atd','mu300-smsd','mu300-network-recovery','mu300-accounts','mu300-user-packages','ttyd',
-        'mu300-ndp','mu300-charge','u30pro-battlog','u30pro-panel','mu300-post','unisoc-modem-ui',
+        'mu300-ndp','mu300-charge','u30pro-charge-mode','u30pro-battlog','u30pro-panel','mu300-post','unisoc-modem-ui',
         'unisoc-cpu','unisoc-cpu-cores','unisoc-network-performance','unisoc-sms-forward',
         'unisoc-traffic','unisoc-ttl','u30pro-nfc','unisoc-ra-renew',
         'dbus','bluetoothd','unisoc-bluetooth')
@@ -462,7 +462,7 @@ def finish():
     if not MODEL['screen'] or not MODEL['battery']:
         disabled=set()
         if not MODEL['screen']: disabled.add('u30pro-panel')
-        if not MODEL['battery']: disabled.update(('u30pro-battlog','mu300-charge'))
+        if not MODEL['battery']: disabled.update(('u30pro-battlog','mu300-charge','u30pro-charge-mode'))
         selected=tuple(name for name in selected if name not in disabled)
         for service in disabled:
             for link in rc.glob('[SK][0-9][0-9]'+service):

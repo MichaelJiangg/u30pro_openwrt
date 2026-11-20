@@ -1,0 +1,124 @@
+#!/usr/bin/ucode
+// The charging gate owns no AT port and changes no saved radio/service setting.
+// Native helpers provide evdev, kernel uevents and KMS; ucode owns the lifecycle.
+import * as fs from 'fs';
+import * as uci from 'uci';
+import * as uloop from 'uloop';
+import * as policy from 'mu300.charger-boot';
+
+const ROOT = getenv('U30PRO_CHARGE_ROOT') || '';
+function read(path) { return trim(fs.readfile(ROOT + path) || ''); }
+function log(message) { warn('u30pro-charge-mode: ' + message + '\n'); }
+function run(args) { return system(args); }
+const c = uci.cursor(ROOT + '/etc/config');
+const args = read('/proc/cmdline') + ' ' + read('/proc/device-tree/chosen/bootargs');
+if (!policy.charging(read('/etc/mu300/model'), args,
+        c.get('mu300-charge', 'main', 'power_on'), !!fs.stat(ROOT + '/tmp/.failsafe'))) exit(0);
+// A charger-origin boot keeps its cmdline after entering the normal system.
+// Reinvoking this entry must never put an already-running system behind a gate.
+if (fs.stat(ROOT + '/run/u30pro-cp-started')) exit(0);
+
+// Production commands are fixed. A root-prefixed fixture supplies executable
+// substitutes to exercise the real uloop/process lifecycle without hardware.
+function exe(path) { return ROOT + path; }
+const ENV = {PATH:'/usr/sbin:/usr/bin:/sbin:/bin:/opt/mu300/bin',
+    U30PRO_CHARGE_ROOT:ROOT};
+const RUN = ROOT + '/run/mu300';
+if (!fs.stat(RUN) && !fs.mkdir(RUN, 448)) die('Cannot create charging runtime directory\n');
+const marker = RUN + '/charging-boot';
+if (fs.writefile(marker, 'u30pro\n') != 7) die('Cannot record charging boot\n');
+const entered = time();
+const initial_power = {capacity:read('/sys/class/power_supply/u30pro-battery/capacity'),
+    battery_type:read('/sys/class/power_supply/u30pro-battery/type'),
+    charger_status:read('/sys/class/power_supply/u30pro-charger-master/status'),
+    online:read('/sys/class/power_supply/u30pro-charger-master/online')};
+function record(state, reason) {
+    let text = sprintf('%J\n', {state, reason, entered, changed:time(), initial_power,
+        capacity:read('/sys/class/power_supply/u30pro-battery/capacity'),
+        battery_type:read('/sys/class/power_supply/u30pro-battery/type'),
+        charger_status:read('/sys/class/power_supply/u30pro-charger-master/status'),
+        online:read('/sys/class/power_supply/u30pro-charger-master/online')});
+    if (fs.writefile(RUN + '/charging-boot.json', text) != length(text))
+        log('could not record charging transition');
+}
+record('charging', '');
+
+// A healthy charging session must not consume the automatic rollback budget.
+// --rearm respects the saved Android/Linux choice and never changes it.
+if (run([exe('/opt/mu300/bin/mu300-next-boot'), '--rearm']))
+    log('could not rearm the existing boot choice');
+
+uloop.init();
+let display, waiter, limits, ending = false, result = 'unavailable', deadline;
+function complete() {
+    if (ending && !display && !waiter && !limits) uloop.end();
+}
+function stop_child(child, signal) {
+    if (child) run([exe('/bin/kill'), '-' + signal, '' + child.pid()]);
+}
+function finish(reason) {
+    if (ending) return;
+    ending = true; result = reason;
+    record(reason == 'poweroff' ? 'poweroff' : 'handoff', reason);
+    stop_child(display, 'TERM'); stop_child(waiter, 'TERM'); stop_child(limits, 'TERM');
+    // A broken renderer must not hold KMS while the normal screen starts.
+    deadline = uloop.timer(2000, () => {
+        stop_child(display, 'KILL'); stop_child(waiter, 'KILL'); stop_child(limits, 'KILL');
+    });
+    complete();
+}
+const term = uloop.signal(15, () => finish('unavailable'));
+const interrupt = uloop.signal(2, () => finish('unavailable'));
+
+// Honor the existing user's charging limits/manual pause during the gate.
+// Its watcher uses the existing 30 s SOC deadline because this FGU does not
+// emit percentage-change events. Never add a second SOC or RF polling loop.
+let pipe = fs.popen(exe('/usr/libexec/unisoc-modem/charge') + ' apply', 'r'), charge;
+if (pipe) {
+    try { charge = json(pipe.read('all')); } catch(e) {}
+    pipe.close();
+}
+if (!charge?.ok) log('charging policy unavailable; waiting for supply readiness with native protections active');
+let requested = c.get('mu300-charge','main','enabled') == '1' ||
+    c.get('mu300-charge','main','paused') == '1' || c.get('mu300-charge','main','full_once') == '1';
+if ((!charge?.ok && requested) || (charge?.ok && !charge.paused && (charge.enabled || charge.full_once))) {
+    limits = uloop.process(exe('/usr/bin/ucode'),
+        [exe('/usr/libexec/unisoc-modem/charge-watch.uc')], ENV,
+        code => { limits = null; if (!ending) log('charging-limit watcher ended: ' + code); complete(); });
+}
+display = uloop.process(exe('/opt/u30pro/bin/u30pro-panel'), ['charger'], ENV,
+    code => { display = null; if (!ending) log('charging display ended: ' + code); complete(); });
+// Supply is selected by hardware profile, never by an image/version/hash.
+waiter = uloop.process(exe('/usr/sbin/mu300-keys'),
+    ['-c', '-p', ROOT + '/sys/class/power_supply/u30pro-charger-master/online', '-l', '2000'], ENV,
+    code => { waiter = null; finish(policy.outcome(code)); complete(); });
+if (!waiter) finish('unavailable');
+log('charging only; hold power for 2 seconds to start OpenWrt');
+uloop.run();
+deadline?.cancel();
+fs.unlink(marker);
+if (result != 'poweroff') {
+    log(result == 'boot' ? 'continuing normal startup with saved settings' :
+        'charging input unavailable; continuing normal startup');
+    exit(0);
+}
+
+log('external power removed; powering off');
+run([exe('/opt/mu300/bin/mu300-next-boot'), '--rearm']);
+run([exe('/bin/sync')]);
+// rcS is blocked here: normal procd shutdown cannot finish. Use the same
+// synchronized kernel poweroff path as U30 Air, including the FGU shutdown.
+run([exe('/bin/mount'), '-o', 'remount,ro', '/']);
+if (fs.stat(ROOT + '/mnt/mu300-disk'))
+    run([exe('/bin/mount'), '-o', 'remount,ro', '/mnt/mu300-disk']);
+run([exe('/bin/sync')]);
+run([exe('/sbin/poweroff'), '-f']);
+// If poweroff returns, keep rcS gated. A retry deadline is not a hardware poll.
+log('kernel poweroff returned; retaining charging gate');
+record('poweroff-failed', 'poweroff');
+let retry;
+retry = uloop.timer(1000, () => {
+    run([exe('/sbin/poweroff'), '-f']);
+    retry.set(1000);
+});
+uloop.run();

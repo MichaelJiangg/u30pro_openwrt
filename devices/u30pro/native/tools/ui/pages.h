@@ -45,6 +45,7 @@ typedef struct { int x, y, w, h, id, round, hold; short vx, vy, vw, vh, vr; unsi
 static Hit hits[MAXHITS];
 static int nhits, g_reg;
 static long g_ms;
+static int charger_only;
 static int theme_idx, ov, ov_arg, sms_scroll, sms_lines_n;
 static Sms sms_detail;
 static int sms_detail_slot, sms_list_scroll;
@@ -464,6 +465,30 @@ static void ic_bolt(Cv *c, float cx, float cy, float s, uint32_t col)
 {
 	gx_tri(c, cx + s * .15f, cy - s, cx - s * .55f, cy + s * .1f, cx + s * .1f, cy + s * .1f, col, 255);
 	gx_tri(c, cx - s * .15f, cy + s, cx + s * .55f, cy - s * .1f, cx - s * .1f, cy - s * .1f, col, 255);
+}
+
+/* Charge-only display: no wallpaper, menus, pairing or radio controls. */
+static void draw_charger(Cv *c)
+{
+	char text[24];
+	uint32_t green = D.bat_pct >= 0 && D.bat_pct < 10 ? 0xF26A62 : 0x65DD8C;
+	int pulse = D.charging && !D.full && D.bat_pct < 100;
+	float phase = (float)(g_ms % 2400) / 2400.f;
+	int alpha = pulse ? 110 + (int)(100.f * (.5f - .5f * cosf(phase * 2.f * GX_PI))) : 210;
+
+	gx_fill(c, 0x000000);
+	gx_ring(c, 120, 108, 74, 78, 0x193124, 255);
+	if (D.bat_pct > 0)
+		gx_arc(c, 120, 108, 76, 4, 0, 3.6f * (float)D.bat_pct, green, alpha, 1);
+	ic_bolt(c, 120, 69, 12, green);
+	if (D.bat_pct >= 0) snprintf(text, sizeof text, "%d%%", D.bat_pct);
+	else snprintf(text, sizeof text, "--%%");
+	TXTC(c, FB44, 120, 125, text, 0xFFFFFF);
+	const char *state = !D.bat_ok || D.bat_pct < 0 ? "正在读取电池" :
+		!D.bat_status[0] || !strcmp(D.bat_status, "Unknown") ? "正在读取状态" :
+		D.full ? "已充满" : D.charging ? "正在充电" : "充电已暂停";
+	TXTC(c, FN14, 120, 151, state, green);
+	TXTC(c, FN12, 120, 203, "长按电源键开机", 0x8E9791);
 }
 
 static void ic_arrow(Cv *c, float cx, float cy, float s, int down, uint32_t col)

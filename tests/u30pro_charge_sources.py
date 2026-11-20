@@ -43,8 +43,10 @@ typedef uint32_t u32; typedef uint8_t u8;
 #define READ_ONCE(x) (x)
 #define WRITE_ONCE(x,v) ((x)=(v))
 #define BIT(x) (1U<<(x))
+#define GENMASK(h,l) (((1U<<((h)-(l)+1))-1)<<(l))
 #define SGM_STATUS 8
 #define SGM_CONTROL 1
+#define SGM_TIMER 5
 #define SGM_OTG BIT(5)
 #define min_t(t,a,b) ((t)(a)<(t)(b)?(t)(a):(t)(b))
 #define container_of(p,t,m) ((t *)((char *)(p)-offsetof(t,m)))
@@ -65,9 +67,23 @@ struct mutex {int unused;};struct work_struct {int unused;};
 struct delayed_work {int unused;};struct notifier_block {int unused;};
 struct power_supply_desc {int unused;};struct regulator_desc {int unused;};
 struct usb_phy {int chg_state,chg_type;};
+struct i2c_client {int unused;};struct regmap {unsigned value;};struct gpio_desc {int value;};
 struct power_supply {int kind;};union power_supply_propval {int intval;};
 STRUCTS
 static unsigned regs[16],reads,writes,queued,notifications,locks,cancelled;
+static unsigned slave_regs[16],slave_writes,pmic_calls;
+static int slave_read_error=-1,slave_write_error=-1,pmic_error,master_write_error=-1;
+static struct i2c_client slave_hw;
+static int i2c_smbus_read_byte_data(struct i2c_client *client,int reg){
+ assert(client==&slave_hw);return reg==slave_read_error?-EIO:(int)slave_regs[reg];
+}
+static int i2c_smbus_write_byte_data(struct i2c_client *client,int reg,int value){
+ assert(client==&slave_hw);slave_writes++;slave_regs[reg]=value;return reg==slave_write_error?-EIO:0;
+}
+static int regmap_update_bits(struct regmap *map,unsigned reg,unsigned mask,unsigned value){
+ assert(reg==0x2308);pmic_calls++;if(pmic_error)return pmic_error;map->value=(map->value&~mask)|value;return 0;
+}
+static void gpiod_set_value_cansleep(struct gpio_desc *gpio,int value){gpio->value=value;}
 static int pd_online,pd_uv=5000000,pd_ua=3000000,temp=320,have_temp=1;
 static struct power_supply pd={1},battery={2};
 static bool battery_present=true;
@@ -80,7 +96,7 @@ static void *power_supply_get_drvdata(struct power_supply *s){(void)s;return fix
 static int sgm_read(struct u30_sgm *s,int reg){(void)s;reads++;return reg==fail_read_reg?-EIO:(int)regs[reg];}
 static int sgm_update_reg(struct u30_sgm *s,int reg,int mask,int value){
  (void)s;writes++;regs[reg]=(regs[reg]&~mask)|value;
- return reg==6&&fail_ovp_write?-EIO:0;
+ return (reg==6&&fail_ovp_write)||reg==master_write_error?-EIO:0;
 }
 static struct power_supply *power_supply_get_by_name(const char *n){
  return strstr(n,"tcpm")?&pd:(have_temp?&battery:NULL);
@@ -280,16 +296,99 @@ int main(int argc,char **argv){
   have_temp=1;sgm_request_pd_voltage(&s);assert(regs[6]==0x58&&!s.pd_ovp_ready);
   break;
  }
+ case 14: {
+  struct regmap map={.value=0x901};
+  struct u30_sgm_slave slave={.hw=&slave_hw,.pmic=&map,.pd_reg=0x2308};
+  s.slave=&slave;slave_regs[0]=0x04;slave_regs[1]=0x8a;slave_regs[5]=0x07;
+  slave_regs[2]=0xb4;slave_regs[4]=0x90;
+  assert(!sgm_slave_stop(&s));assert(slave_regs[0]==0x84);
+  assert(slave_regs[1]==0x8a&&slave_regs[5]==0x07&&map.value==0x901);
+  assert(slave_regs[2]==0xb4&&slave_regs[4]==0x90&&slave_writes==1&&writes==0);
+  assert(!sgm_slave_stop(&s));assert(slave_writes==1);break;
+ }
+ case 15: {
+  struct regmap map={.value=0x900};
+  struct u30_sgm_slave slave={.hw=&slave_hw,.pmic=&map,.pd_reg=0x2308};
+  s.slave=&slave;
+  for(int reg=0;reg<6;reg++){
+   if(reg!=0&&reg!=1&&reg!=5)continue;
+   for(int write_error=0;write_error<2;write_error++){
+    slave_regs[0]=0x04;slave_regs[1]=0xba;slave_regs[5]=0x37;map.value=0x900;pmic_calls=0;
+    slave_read_error=write_error?-1:reg;slave_write_error=write_error?reg:-1;
+    assert(sgm_slave_stop(&s)==-EIO&&slave.last_error==-EIO);
+    assert(pmic_calls==1&&map.value==0x901);
+    slave_read_error=slave_write_error=-1;
+    assert(!sgm_slave_stop(&s)&&slave.last_error==0);
+    assert(slave_regs[0]==0x84&&slave_regs[1]==0xaa&&slave_regs[5]==0x07);
+   }
+  }
+  pmic_error=-EIO;assert(sgm_slave_stop(&s)==-EIO);
+  pmic_error=0;assert(!sgm_slave_stop(&s));break;
+ }
+ case 16: {
+  struct regmap map={.value=1};
+  struct u30_sgm_slave slave={.hw=&slave_hw,.pmic=&map,.pd_reg=0x2308};
+  union power_supply_propval value={.intval=POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE};
+  s.slave=&slave;slave_regs[1]=0x8a;slave_regs[0]=4;
+  assert(!sgm_set_property(&battery,POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR,&value));
+  assert(!(regs[1]&BIT(4))&&!s.pol_charge&&slave_regs[0]==0x84);
+  value.intval=POWER_SUPPLY_CHARGE_BEHAVIOUR_AUTO;
+  assert(!sgm_set_property(&battery,POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR,&value));
+  assert(regs[1]&BIT(4));assert(!(slave_regs[1]&BIT(4))&&slave_regs[0]==0x84);
+  regs[1]|=SGM_OTG;unsigned control=regs[1];
+  assert(!sgm_apply_policy(&s)&&regs[1]==control&&!(regs[0]&BIT(7)));
+  value.intval=POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE;
+  assert(!sgm_set_property(&battery,POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR,&value));
+  assert(regs[1]&SGM_OTG);assert(!(regs[1]&BIT(4)));break;
+ }
+ case 17: {
+  struct regmap map={.value=1};
+  struct u30_sgm_slave slave={.hw=&slave_hw,.pmic=&map,.pd_reg=0x2308};
+  s.slave=&slave;slave_regs[0]=4;slave_regs[1]=0x8a;
+  sgm_source_work(&s.source_work);assert(slave_regs[0]==0x84);
+  slave_regs[0]=4;slave_regs[1]|=BIT(4);slave_regs[5]|=0x30;map.value=0;
+  phy.chg_type=DCP_TYPE;sgm_source_notify(&s.usb_nb,0,&phy);
+  assert(queued==1&&slave_regs[0]==4); // no I2C from the atomic notifier
+  sgm_source_work(&s.source_work);
+  assert(slave_regs[0]==0x84&&!(slave_regs[1]&BIT(4))&&!(slave_regs[5]&0x30)&&map.value==1);
+  sgm_cancel_poll(&s);slave_regs[0]=4;sgm_source_work(&s.source_work);
+  assert(slave_regs[0]==4);break;
+ }
+ case 18: {
+  s.policy_on=false;battery_present=false;unsigned control=regs[1];
+  assert(!sgm_apply_policy(&s));assert(!slave_writes&&!pmic_calls&&!writes&&regs[1]==control);break;
+ }
+ case 19: {
+  struct gpio_desc gpio={0};
+  struct u30_sgm_slave slave={.hw=&slave_hw,.disable=&gpio};
+  s.slave=&slave;slave_regs[0]=4;slave_regs[1]=0x8a;
+  assert(!sgm_slave_stop(&s)&&gpio.value==1&&!pmic_calls&&slave_regs[0]==0x84);break;
+ }
+ case 20: {
+  struct regmap map={.value=1};
+  struct u30_sgm_slave slave={.hw=&slave_hw,.pmic=&map,.pd_reg=0x2308};
+  union power_supply_propval value={.intval=POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE};
+  s.slave=&slave;slave_regs[0]=4;slave_regs[1]=0x8a;slave_read_error=0;
+  assert(sgm_set_property(&battery,POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR,&value)==-EIO);
+  assert(!(regs[1]&BIT(4))&&s.last_error==-EIO);
+  // A failed slave must not prevent reducing main demand when DCP becomes SDP.
+  s.behaviour=POWER_SUPPLY_CHARGE_BEHAVIOUR_AUTO;regs[0]=29;phy.chg_type=SDP_TYPE;
+  assert(sgm_apply_policy(&s)==-EIO&&sgm41513_iin_ua(regs[0])==500000);
+  slave_read_error=-1;master_write_error=1;
+  assert(sgm_set_property(&battery,POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR,&value)==-EIO);
+  assert(slave_regs[0]==0x84);master_write_error=-1;
+  assert(!sgm_set_property(&battery,POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR,&value));break;
+ }
  default:assert(0);
  }
  return 0;
 }
 '''
         structs = '\n'.join(declaration(r'^struct '+name+r'\s*\{')+';'
-                            for name in ('sgm_jeita','u30_sgm'))
+                            for name in ('sgm_jeita','u30_sgm_slave','u30_sgm'))
         functions = '\n'.join(declaration(r'^static (?:int|void) '+name+r'\([^;{}]*\)\s*\{')
             for name in ('sgm_ichg_code','sgm_cv_code','sgm_band','sgm_jeita_band','sgm_source_type',
-                         'sgm_usb_type','sgm_policy','sgm_request_pd_voltage','sgm_source_work','sgm_source_notify','sgm_cancel_poll',
+                         'sgm_usb_type','sgm_policy','sgm_slave_update','sgm_slave_stop','sgm_apply_policy','sgm_request_pd_voltage','sgm_source_work','sgm_source_notify','sgm_cancel_poll',
                          'sgm_set_property','sgm_pd_check'))
         functions = '\n'.join(declaration(r'^static bool '+name+r'\([^;{}]*\)\s*\{')
                     for name in ('sgm_pd9_allowed','sgm_pd_can_start')) + functions
@@ -317,6 +416,13 @@ int main(int argc,char **argv){
     def test_stock_start_delay_taper_hysteresis_and_pause(self):self.case(11)
     def test_fast_charge_uses_its_own_selected_stock_jeita_table(self):self.case(12)
     def test_uncertain_ovp_write_and_actual_vbus_guard_cleanup(self):self.case(13)
+    def test_measured_slave_leak_requires_input_isolation(self):self.case(14)
+    def test_slave_i2c_errors_still_attempt_hardware_disable_and_can_recover(self):self.case(15)
+    def test_pause_resume_and_otg_keep_main_supply_and_unused_slave_separate(self):self.case(16)
+    def test_source_events_reapply_slave_stop_after_reset_and_respect_shutdown(self):self.case(17)
+    def test_f50pro_no_battery_policy_does_not_access_slave(self):self.case(18)
+    def test_original_slave_gpio_variant_keeps_pmic_untouched(self):self.case(19)
+    def test_pause_reports_errors_but_slave_fault_never_blocks_main_source_limits(self):self.case(20)
 
 
 if __name__=='__main__':unittest.main(verbosity=2)

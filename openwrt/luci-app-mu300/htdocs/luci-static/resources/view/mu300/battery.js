@@ -21,6 +21,7 @@ function stamp(t, short) {
 	return new Date(t * 1000).toLocaleString(M.uiLanguage() === 'zh' ? 'zh-CN' : M.uiLanguage(), short ? {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'} : undefined);
 }
 function number(n, digits) { return Number.isFinite(n) ? n.toFixed(digits) : '—'; }
+function signed(n, digits) { return (Number.isFinite(n) && n > 0 ? '+' : '') + number(n, digits); }
 function state(s) { return M.translate({D:'使用电池',C:'正在充电',F:'已充满',P:'已连接电源，未充电'}[s] || '正在读取…'); }
 
 return view.extend({
@@ -81,7 +82,7 @@ return view.extend({
 	paint: function(s) {
 		var c=s.current||{}, pct=Number.isFinite(c.pct)?c.pct:null;
 		this.cards.capacity.value.textContent=pct==null?'—':pct+'%';this.cards.capacity.sub.textContent=Number.isFinite(c.temp)?number(c.temp/10,1)+' °C':'—';this.meter.style.width=(pct==null?0:Math.max(0,Math.min(100,pct)))+'%';
-		this.cards.state.value.textContent=state(c.st);this.cards.state.sub.textContent=number(c.mw==null?null:Math.abs(c.mw)/1000,2)+' W · '+(Number.isFinite(c.ma)&&c.ma>0?'+':'')+number(c.ma,0)+' mA · '+number(c.mv==null?null:c.mv/1000,2)+' V';
+		this.cards.state.value.textContent=state(c.st);this.cards.state.sub.textContent=signed(c.mw==null?null:c.mw/1000,2)+' W · '+signed(c.ma,0)+' mA · '+number(c.mv==null?null:c.mv/1000,2)+' V';
 		this.cards.time.value.textContent=duration(s.stats&&s.stats.on_battery_s);this.cards.time.sub.textContent=M.translate((ranges.find(function(x){return x[0]===s.range;})||ranges[0])[1]);
 		this.cards.estimate.value.textContent=duration(s.estimate_s);this.cards.estimate.sub.textContent=M.translate(c.online?'连接电源时不估算续航':s.estimate_s==null?'放电记录不足，暂不估算':'按最近放电速度估算');
 		this.draw(s);

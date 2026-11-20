@@ -335,7 +335,7 @@ def main(include_modem=True):
     print('PASS actual key dispatch: MU3356 KEY_HOME only; other models retain original power/Wi-Fi keys')
     run('set +e; output=$(chroot /target /opt/u30pro/bin/u30pro-panel 2>&1); rc=$?; '
         'set -e; [ "$rc" = 2 ]; case "$output" in *"Usage: u30pro-panel"*) ;; *) printf "%s\\n" "$output"; exit 1;; esac')
-    for service in ('mu300-vendor','mu300-hw','mu300-atd','mu300-charge','u30pro-panel','u30pro-watchdog','u30pro-factory','mu300-cpu-driver','u30pro-nfc'):
+    for service in ('mu300-vendor','mu300-hw','mu300-atd','mu300-charge','u30pro-charge-mode','u30pro-panel','u30pro-watchdog','u30pro-factory','mu300-cpu-driver','u30pro-nfc'):
         run('chroot /target /bin/sh -n /etc/init.d/'+service)
     assert 'iproute2' in run('chroot /target /sbin/ip -V')
     for script in ('/usr/sbin/u30pro-usb-role', '/usr/libexec/unisoc-modem/device-usb', '/opt/mu300/bin/mu300-usb',
@@ -354,6 +354,11 @@ def main(include_modem=True):
     schema=json.loads(run('chroot /target /usr/libexec/rpcd/unisoc-product-form list'))
     assert schema=={'get':{},'set':{'model':'String','mode':'String'}}
     assert (ROOT/'etc/rc.d/S14u30pro-panel').is_symlink()==MODEL['screen']
+    assert (ROOT/'etc/rc.d/S09u30pro-charge-mode').is_symlink()==MODEL['battery']
+    for name in ('usr/libexec/u30pro-charge-mode','usr/share/ucode/mu300/charger-boot.uc',
+                 'etc/init.d/u30pro-charge-mode'):
+        assert (ROOT/name).read_bytes()==(TOP/'devices/u30pro/overlay'/name).read_bytes()
+    run('chroot /target /usr/bin/ucode -c /usr/libexec/u30pro-charge-mode -o /dev/null')
     assert (ROOT/'etc/rc.d/S11f50pro-leds').is_symlink()==(MODEL['id']=='f50pro')
     assert (ROOT/'etc/rc.d/S99f50pro-led-ready').is_symlink()==(MODEL['id']=='f50pro')
     assert (ROOT/'etc/rc.d/S95f50pro-buttons').is_symlink()==(MODEL['id']=='f50pro')

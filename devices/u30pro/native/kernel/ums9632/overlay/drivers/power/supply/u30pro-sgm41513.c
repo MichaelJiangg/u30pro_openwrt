@@ -9,15 +9,19 @@
  */
 #include <linux/bitops.h>
 #include <linux/i2c.h>
+#include <linux/gpio/consumer.h>
 #include <linux/jiffies.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/of.h>
+#include <linux/of_platform.h>
+#include <linux/platform_device.h>
 #include <linux/power_supply.h>
 #include <linux/power/u30pro-pd9.h>
 #include <linux/regulator/driver.h>
 #include <linux/regulator/machine.h>
 #include <linux/regulator/of_regulator.h>
+#include <linux/regmap.h>
 #include <linux/workqueue.h>
 #include <linux/slab.h>
 #include <linux/usb/phy.h>
@@ -41,9 +45,22 @@ struct sgm_jeita {
  u32 ichg, cv;		/* uA, uV */
 };
 
+/* The current charging policy uses the master only. Keep the unused stock
+ * parallel charger in its complete disabled state: CHG_CONFIG=0 alone leaves
+ * its input converter connected and caused +38 mA on the inspected MU5358.
+ */
+struct u30_sgm_slave {
+ struct i2c_client *hw;
+ struct regmap *pmic;
+ struct gpio_desc *disable;
+ u32 pd_reg;
+ int last_error;
+};
+
 struct u30_sgm {
  struct device *dev;
  struct i2c_client *hw;
+ struct u30_sgm_slave *slave;
  struct mutex lock;
  struct power_supply *psy;
  struct power_supply_desc psy_desc;
@@ -126,6 +143,100 @@ static int sgm_update_reg(struct u30_sgm *s, u8 reg, u8 mask, u8 value)
  if ((cur & mask) == value) return 0;
  ret = i2c_smbus_write_byte_data(s->hw, reg, (cur & ~mask) | value);
  if (!ret) s->data_writes++;
+ return ret;
+}
+
+static int sgm_slave_update(struct u30_sgm_slave *slave, u8 reg, u8 mask, u8 value)
+{
+ int old = i2c_smbus_read_byte_data(slave->hw, reg);
+ if (old < 0) return old;
+ if ((old & mask) == value) return 0;
+ return i2c_smbus_write_byte_data(slave->hw, reg, (old & ~mask) | value);
+}
+
+/* Actual LTY B04 sqc_bq2560x role-slave stop sequence. Preserve the master,
+ * BATFET, current/voltage limits, input detection and Type-C power role.
+ * Attempt the remaining disable steps even if one I2C transaction fails.
+ */
+static int sgm_slave_stop(struct u30_sgm *s)
+{
+ struct u30_sgm_slave *slave = s->slave;
+ int ret, error = 0;
+ if (!slave) return 0;
+ ret = sgm_slave_update(slave, SGM_CONTROL, BIT(4), 0);
+ if (ret) error = ret;
+ ret = sgm_slave_update(slave, SGM_TIMER, GENMASK(5, 4), 0);
+ if (ret && !error) error = ret;
+ ret = sgm_slave_update(slave, 0x00, BIT(7), BIT(7));
+ if (ret && !error) error = ret;
+ if (slave->disable) {
+  gpiod_set_value_cansleep(slave->disable, 1);
+ } else {
+  ret = regmap_update_bits(slave->pmic, slave->pd_reg, BIT(0), BIT(0));
+  if (ret && !error) error = ret;
+ }
+ slave->last_error = error;
+ return error;
+}
+
+static void sgm_put_device(void *data)
+{
+ put_device(data);
+}
+
+static int sgm_slave_prepare(struct u30_sgm *s)
+{
+ struct device_node *node;
+ struct i2c_client *legacy;
+ struct platform_device *provider;
+ struct u30_sgm_slave *slave;
+ int id, again, ret;
+
+ if (!battery_present) return 0; /* F50 Pro has no battery charging policy. */
+ node = of_find_compatible_node(NULL, NULL, "ti,bq2560x_chg2");
+ if (!node) return 0;
+ if (!of_device_is_available(node)) { of_node_put(node); return 0; }
+ if (!of_property_read_bool(node, "role-slave")) {
+  of_node_put(node); return -EINVAL;
+ }
+ legacy = of_find_i2c_device_by_node(node);
+ if (!legacy) { of_node_put(node); return -EPROBE_DEFER; }
+ ret = devm_add_action_or_reset(s->dev, sgm_put_device, &legacy->dev);
+ if (ret) { of_node_put(node); return ret; }
+ if (legacy->dev.driver) { of_node_put(node); return -EBUSY; }
+ slave = devm_kzalloc(s->dev, sizeof(*slave), GFP_KERNEL);
+ if (!slave) { of_node_put(node); return -ENOMEM; }
+ slave->hw = devm_i2c_new_dummy_device(s->dev, legacy->adapter, 0x1a);
+ if (IS_ERR(slave->hw)) { of_node_put(node); return PTR_ERR(slave->hw); }
+ id = i2c_smbus_read_byte_data(slave->hw, SGM_ID);
+ again = i2c_smbus_read_byte_data(slave->hw, SGM_ID);
+ if (id < 0 || again < 0 || (id & 0x7c) || (id & 0x7f) != (again & 0x7f)) {
+  of_node_put(node); return id < 0 ? id : again < 0 ? again : -ENODEV;
+ }
+ if (of_find_property(node, "enable-gpios", NULL) ||
+     of_find_property(node, "enable-gpio", NULL)) {
+  slave->disable = devm_fwnode_gpiod_get_index(s->dev, of_fwnode_handle(node),
+                    "enable", 0, GPIOD_OUT_HIGH_OPEN_DRAIN, "u30pro-slave-disable");
+  of_node_put(node);
+  if (IS_ERR(slave->disable)) return PTR_ERR(slave->disable);
+ } else {
+  of_node_put(node);
+  node = of_find_compatible_node(NULL, NULL, "sprd,ump9651-syscon");
+  if (!node) return -ENODEV;
+  /* Original UMP9651 binding: reg[5] is SLAVE_CHG_PD, mask bit0. */
+  ret = of_property_read_u32_index(node, "reg", 5, &slave->pd_reg);
+  provider = of_find_device_by_node(node);
+  of_node_put(node);
+  if (!provider) return ret ? ret : -EPROBE_DEFER;
+  if (ret) { put_device(&provider->dev); return ret; }
+  ret = devm_add_action_or_reset(s->dev, sgm_put_device, &provider->dev);
+  if (ret) return ret;
+  slave->pmic = dev_get_regmap(provider->dev.parent, NULL);
+  if (!slave->pmic) return -EPROBE_DEFER;
+ }
+ s->slave = slave;
+ ret = sgm_slave_stop(s);
+ if (!ret) dev_info(s->dev, "stock unused slave i2c%d:1a isolated\n", legacy->adapter->nr);
  return ret;
 }
 
@@ -365,6 +476,22 @@ static void sgm_policy(struct u30_sgm *s)
  s->pol_iin = iin; s->pol_ichg = ichg; s->pol_cv = cv; s->pol_charge = charge;
 }
 
+static int sgm_apply_policy(struct u30_sgm *s)
+{
+ int ret, master;
+ /* A slave I2C fault must not stop the master adapting to a weaker source. */
+ sgm_policy(s);
+ ret = sgm_slave_stop(s);
+ if (s->policy_on && s->behaviour == POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE) {
+  s->pol_charge = false;
+  /* Report a real main/slave disable failure to the caller, rather than
+   * acknowledging pause solely because the requested software flag changed. */
+  master = sgm_update_reg(s, SGM_CONTROL, BIT(4), 0);
+  if (!ret) ret = master;
+ }
+ return ret;
+}
+
 static bool sgm_pd9_allowed(struct u30_sgm *s)
 {
  return battery_present && s->policy_on && s->pd_poll_ms && s->pd_measurements_valid &&
@@ -502,7 +629,7 @@ static void sgm_source_work(struct work_struct *work)
 
  if (READ_ONCE(s->stopping)) return;
  mutex_lock(&s->lock);
- if (!s->stopping) sgm_policy(s);
+ if (!s->stopping) s->last_error = sgm_apply_policy(s);
  if (sgm_pd_can_start(s) && !s->pd_wanted && s->pd_enable_count < 3)
   mod_delayed_work(system_wq, &s->poll, msecs_to_jiffies(500));
  if (!s->pol_charge || s->behaviour != POWER_SUPPLY_CHARGE_BEHAVIOUR_AUTO ||
@@ -598,7 +725,8 @@ static int sgm_set_property(struct power_supply *psy, enum power_supply_property
   break;
  default: ret = -EINVAL;
  }
- if (!ret) sgm_policy(s);
+ if (!ret) ret = sgm_apply_policy(s);
+ s->last_error = ret;
  mutex_unlock(&s->lock);
  if (!ret) schedule_work(&s->source_work);
  return ret;
@@ -761,14 +889,14 @@ static void sgm_poll(struct work_struct *work)
    if (!ret) s->watchdog_pings++;
   }
  }
- if (!ret) sgm_policy(s);
+ if (!ret) ret = sgm_apply_policy(s);
  if (!ret) sgm_pd_check(s);
  s->last_error = ret;
  if (ret) s->poll_errors++;
  mutex_unlock(&s->lock);
  if (changed) power_supply_changed(s->psy);
  if (!ret) sgm_pd_keepalive(s);
- if (ret) dev_warn_ratelimited(s->dev, "status/watchdog I2C error %d\n", ret);
+ if (ret) dev_warn_ratelimited(s->dev, "status/watchdog/charge-path error %d\n", ret);
  if (!READ_ONCE(s->stopping))
   schedule_delayed_work(&s->poll, !s->pd_wanted && s->pd_enable_count > 0 &&
                         s->pd_enable_count < 3 ? msecs_to_jiffies(500) : 5 * HZ);
@@ -811,10 +939,39 @@ static ssize_t native_state_show(struct device *dev,
                   s->battery_index, s->battery_id_mv, s->cv_max_uv, s->boot_vreg);
  mutex_unlock(&s->lock);return len;
 }
+static ssize_t slave_register_snapshot_show(struct device *dev,
+                                          struct device_attribute *attr, char *buf)
+{
+ static const u8 regs[] = {0, 1, 5, 8};
+ struct u30_sgm *s = dev_get_drvdata(dev);
+ unsigned int pd;
+ int i, value, len = 0, ret;
+ mutex_lock(&s->lock);
+ if (!s->slave) { len = sysfs_emit(buf, "not fitted\n"); goto out; }
+ for (i = 0; i < ARRAY_SIZE(regs); i++) {
+  value = i2c_smbus_read_byte_data(s->slave->hw, regs[i]);
+  if (value < 0) { len = value; goto out; }
+  len += sysfs_emit_at(buf, len, "%02x=%02x\n", regs[i], value);
+ }
+ if (s->slave->disable) {
+  value = gpiod_get_value_cansleep(s->slave->disable);
+  if (value < 0) { len = value; goto out; }
+  len += sysfs_emit_at(buf, len, "disable_gpio=%d\n", value);
+ } else {
+  ret = regmap_read(s->slave->pmic, s->slave->pd_reg, &pd);
+  if (ret) { len = ret; goto out; }
+  len += sysfs_emit_at(buf, len, "pmic%04x=%04x\n", s->slave->pd_reg, pd);
+ }
+ len += sysfs_emit_at(buf, len, "last_error=%d\n", s->slave->last_error);
+out:
+ mutex_unlock(&s->lock);return len;
+}
 static DEVICE_ATTR(register_snapshot, 0400, register_snapshot_show, NULL);
 static DEVICE_ATTR(native_state, 0400, native_state_show, NULL);
+static DEVICE_ATTR(slave_register_snapshot, 0400, slave_register_snapshot_show, NULL);
 static struct attribute *sgm_attrs[] = {
- &dev_attr_register_snapshot.attr, &dev_attr_native_state.attr, NULL,
+ &dev_attr_register_snapshot.attr, &dev_attr_native_state.attr,
+ &dev_attr_slave_register_snapshot.attr, NULL,
 };
 ATTRIBUTE_GROUPS(sgm);
 
@@ -876,6 +1033,8 @@ static int sgm_probe(struct i2c_client *client)
  if (battery_present) {
   ret = sgm_load_tables(s);
   if (ret) return dev_err_probe(dev, ret, "selected stock battery charge profile is invalid\n");
+  ret = sgm_slave_prepare(s);
+  if (ret) return dev_err_probe(dev, ret, "stock parallel charger isolation failed\n");
   node = of_find_node_by_path("/charger-manager");
   if (node) {
    u32 interval;

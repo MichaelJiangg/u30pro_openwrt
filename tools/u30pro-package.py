@@ -330,8 +330,8 @@ def sources(refresh=False):
         if Path(name).name!=name or not name.endswith('.ko'):
             raise ValueError('Invalid previously owned module name')
         (module_root/name).unlink(missing_ok=True)
-    # Same MU300 root assembly rule: distro armsr modules are for another
-    # kernel build. Keep package metadata, but never ship those unused .ko's.
+    # Distro armsr modules are for another kernel build. finish() replaces
+    # their APK records after all dependency installation has completed.
     for directory in (ROOT/'lib/modules').iterdir():
         if directory==module_root:continue
         if directory.is_symlink() or directory.resolve().parent!=(ROOT/'lib/modules').resolve():
@@ -493,6 +493,9 @@ def finish():
     if applied.pop('fw4-sipa-offload.patch', None) is not None:
         patched.write_text(json.dumps(applied,indent=2)+'\n')
     runpy.run_path(str(TOP/'tools/stage-wifi-patches.py'))['stage'](ROOT,TOP/'openwrt/patches',patched)
+    runpy.run_path(str(TOP/'tools/stage-kernel-packages.py'))['stage'](
+        ROOT, KERNEL/'.config', KERNEL/'arch/arm64/boot/Image', report['version'],
+        'u30pro', ROOT_IMAGE)
     baseline=target('MU300_LIB=1; export MU300_LIB; . /target/opt/mu300/bin/mu300-update; upk_manual /target openwrt')
     if not baseline.strip():raise ValueError('Image package baseline is empty')
     (etc/'image-packages').write_text(baseline)

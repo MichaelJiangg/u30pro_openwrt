@@ -6,7 +6,7 @@ function fixture(on) {
     const buttons = {}, requests = [], dialogs = [];
     let decide, complete, finishJob, rejectJob;
     const jobs=[], toasts=[];
-    const element = id => buttons[id] || (buttons[id] = {disabled:false, style:{}, classList:{toggle(){}}, addEventListener(){}});
+    const element = id => buttons[id] || (buttons[id] = {disabled:false, style:{}, addEventListener(){}});
     const root = {isConnected:true, querySelectorAll(){return [];}, querySelector:element};
     const M = {
         v(id) { return element('#mud-'+id); },
@@ -124,7 +124,7 @@ function fixture(on) {
     assert(!node('boot-default-row').hidden && node('boot-next-row').hidden);
     assert.equal(node('boot-temporary').textContent,'是');
     assert.equal(node('boot-control').textContent,'可写入');
-    assert.equal(node('btn-pro-default').disabled,false);
+    assert(!node('btn-pro-default').hidden && !node('btn-pro-default').disabled);
     node('btn-android').onclick();
     assert.equal(f.requests.length,0);
     assert.match(f.dialogs[0].body,/USB.*临时启动已安装的 OpenWrt/);
@@ -135,13 +135,15 @@ function fixture(on) {
     assert.equal(node('boot-default-label').textContent,'默认启动 / 下次启动');
     assert(!node('boot-default-row').hidden && node('boot-next-row').hidden);
     boot.default='linux'; boot.next='linux'; boot.temporary=false; paint();
-    assert.equal(node('btn-pro-default').disabled,true);
+    assert(node('btn-pro-default').hidden && node('btn-pro-default').disabled);
     assert.equal(node('boot-current-label').textContent,'当前系统 / 默认启动 / 下次启动');
     assert(node('boot-default-row').hidden && node('boot-next-row').hidden);
-    assert.equal(node('boot-default-action').textContent,'OpenWrt 已设为默认启动');
+    boot.next='android'; paint();
+    assert(!node('btn-pro-default').hidden && !node('btn-pro-default').disabled);
     boot.next=null; boot.can_set_default=false; paint();
     assert.equal(node('boot-next').textContent,'未确认');
     assert(!node('boot-next-row').hidden && node('btn-android').disabled);
+    assert(node('btn-pro-default').hidden && node('btn-pro-default').disabled);
     f.view.paintBoot({boot:{temporary:true,can_set_default:true},capabilities:{dualboot:1}});
     assert(node('boot-switch').hidden && !node('boot-notice').hidden);
     assert(node('btn-pro-default').hidden && !node('btn-android').disabled);

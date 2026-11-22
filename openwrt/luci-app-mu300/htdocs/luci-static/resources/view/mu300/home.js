@@ -267,7 +267,7 @@ return view.extend({
     <button class="mud-btn warn" id="mud-btn-modem">重启调制解调器</button>
     <button class="mud-btn warn" id="mud-btn-reboot">关机或重启</button>
     <button class="mud-btn warn" id="mud-btn-android">切换到 Android</button>
-    <button type="button" class="mud-btn mud-boot-default" id="mud-btn-pro-default" hidden disabled><span id="mud-boot-default-action">设为默认启动</span></button>
+    <button type="button" class="mud-btn mud-boot-default" id="mud-btn-pro-default" hidden disabled>设为默认启动</button>
   </div>
   <div class="mud-rows mud-boot-rows" id="mud-boot-switch" hidden>
     <div class="mud-r"><span class="mud-k" id="mud-boot-current-label">当前系统</span><span class="mud-v">OpenWrt</span></div>
@@ -486,6 +486,7 @@ return view.extend({
 		var boot = info.boot || {}, isPro = boot.system_switch === 'u30pro';
 		var dualBoot = !!(info.capabilities && info.capabilities.dualboot);
 		var ready = dualBoot && !!boot.can_set_default;
+		var defaultIsCurrent = boot.default === 'linux', nextIsCurrent = boot.next === 'linux';
 		var notice = M.v('boot-notice'), setDefault = M.v('btn-default'), android = M.v('btn-android');
 		var proDefault = M.v('btn-pro-default');
 		notice.hidden = isPro || boot.temporary !== true;
@@ -497,12 +498,12 @@ return view.extend({
 		android.title = android.disabled ? M.translate('启动控制不可用') : '';
 
 		M.v('boot-switch').hidden = !isPro;
-		proDefault.hidden = !isPro;
+		proDefault.hidden = !isPro || !ready || (defaultIsCurrent && nextIsCurrent);
+		proDefault.disabled = proDefault.hidden;
 		if (!isPro) return;
 		var name = function(target) {
 			return target === 'linux' ? 'OpenWrt' : M.translate(target === 'android' ? '原厂 Android' : '未确认');
 		};
-		var defaultIsCurrent = boot.default === 'linux', nextIsCurrent = boot.next === 'linux';
 		var defaultName = name(boot.default), nextName = name(boot.next);
 		var sameTarget = defaultName === nextName;
 		var currentLabel = ['当前系统'];
@@ -516,11 +517,6 @@ return view.extend({
 		M.v('boot-next-row').hidden = nextIsCurrent || sameTarget;
 		M.set('boot-temporary', M.translate(boot.temporary === true ? '是' : boot.temporary === false ? '否' : '未确认'));
 		M.set('boot-control', M.translate(ready ? '可写入' : '不可用'));
-		var alreadyDefault = defaultIsCurrent && nextIsCurrent;
-		M.set('boot-default-action', M.translate(alreadyDefault ? 'OpenWrt 已设为默认启动' : '设为默认启动'));
-		proDefault.classList.toggle('on', alreadyDefault);
-		proDefault.disabled = !ready || alreadyDefault;
-		proDefault.title = ready ? '' : M.translate('启动控制不可用');
 	},
 
 	update: function(st) {

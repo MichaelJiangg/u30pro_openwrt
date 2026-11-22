@@ -1141,7 +1141,6 @@ var DASH_I18N = {
 	'未确认': ['Unconfirmed', 'Doğrulanmadı'],
 	'原厂 Android': ['Stock Android', 'Orijinal Android'],
 	'设 OpenWrt 为默认启动': ['Make OpenWrt the default', 'OpenWrt’yi varsayılan yap'],
-	'OpenWrt 已设为默认启动': ['OpenWrt is already the default', 'OpenWrt zaten varsayılan'],
 	'切换到原厂系统并重启': ['Switch to stock Android and reboot', 'Orijinal Android’e geç ve yeniden başlat'],
 	'正在切换到原厂系统': ['Switching to stock Android', 'Orijinal Android’e geçiliyor'],
 	'设备将重启进入原厂 Android，此管理页与网络连接会断开。': ['The device will reboot into stock Android. This page and network connections will disconnect.', 'Cihaz orijinal Android’e yeniden başlayacak. Bu sayfanın ve ağın bağlantısı kesilecek.'],
@@ -1887,7 +1886,6 @@ html.mud-bootstrap-theme{--surface:var(--background-color-high);--surface-sunken
 .mud-btn[disabled]{opacity:.4;pointer-events:none}
 .mud-ctl{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:7px}
 .mud-boot-default{grid-column:1}
-.mud-boot-default.on[disabled]{opacity:1}
 .mud-boot-rows{margin-top:7px}
 .mud-boot-default[hidden],.mud-boot-rows[hidden],.mud-boot-rows .mud-r[hidden]{display:none}
 .mud-note{font-size:.72rem;color:var(--text-subtle,var(--text-light,#999));margin-top:7px}

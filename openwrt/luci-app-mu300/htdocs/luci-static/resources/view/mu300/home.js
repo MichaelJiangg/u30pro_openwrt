@@ -154,20 +154,6 @@ return view.extend({
   <div style="flex:1;min-width:12rem"><b>当前为临时启动 OpenWrt</b><div>是否将 OpenWrt 设为默认启动？不会立即重启或断网。</div></div>
   <button class="mud-btn" id="mud-btn-default">设为默认启动</button>
 </div>
-<div class="mud-card mud-body" id="mud-boot-switch" hidden>
-  <section class="mud-sec" aria-labelledby="mud-boot-title">
-    <h3 id="mud-boot-title">系统切换</h3>
-    <div class="mud-kpis">
-      <div class="mud-kpi"><b id="mud-boot-current">OpenWrt</b><span>当前系统</span></div>
-      <div class="mud-kpi"><b id="mud-boot-default">未确认</b><span>默认启动</span></div>
-      <div class="mud-kpi"><b id="mud-boot-next">未确认</b><span>下次启动</span></div>
-    </div>
-    <div class="mud-ctl" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
-      <button type="button" class="mud-btn" id="mud-btn-pro-default" disabled>设 OpenWrt 为默认启动</button>
-      <button type="button" class="mud-btn warn" id="mud-btn-pro-android" disabled>切换到原厂系统并重启</button>
-    </div>
-  </section>
-</div>
 <div class="mud-card mud-body">
 
 <div class="mud-sec">
@@ -281,6 +267,14 @@ return view.extend({
     <button class="mud-btn warn" id="mud-btn-modem">重启调制解调器</button>
     <button class="mud-btn warn" id="mud-btn-reboot">关机或重启</button>
     <button class="mud-btn warn" id="mud-btn-android">切换到 Android</button>
+    <button type="button" class="mud-btn mud-boot-default" id="mud-btn-pro-default" hidden disabled><span id="mud-boot-default-action">设为默认启动</span></button>
+  </div>
+  <div class="mud-rows mud-boot-rows" id="mud-boot-switch" hidden>
+    <div class="mud-r"><span class="mud-k" id="mud-boot-current-label">当前系统</span><span class="mud-v">OpenWrt</span></div>
+    <div class="mud-r" id="mud-boot-default-row"><span class="mud-k" id="mud-boot-default-label">默认启动</span><span class="mud-v" id="mud-boot-default">未确认</span></div>
+    <div class="mud-r" id="mud-boot-next-row"><span class="mud-k">下次启动</span><span class="mud-v" id="mud-boot-next">未确认</span></div>
+    <div class="mud-r"><span class="mud-k">临时启动</span><span class="mud-v" id="mud-boot-temporary">未确认</span></div>
+    <div class="mud-r"><span class="mud-k">启动控制</span><span class="mud-v" id="mud-boot-control">未确认</span></div>
   </div>
 </div>
 <div class="mud-sec">
@@ -396,18 +390,18 @@ return view.extend({
 				'以后开机默认进入 OpenWrt；启动失败仍保留 Android 回退。现在不会重启。',
 				{ okText: '确定' }, 'os', 'linux-default');
 		};
-		q('btn-pro-android').onclick = function() {
-			return confirmAction(this, '切换到原厂系统并重启',
-				'设备将重启进入原厂 Android，此管理页与网络连接会断开。\n' +
-				'要回到 OpenWrt，请通过 USB 连接电脑，在 OpenWrt 安装器中选择「临时启动已安装的 OpenWrt」。',
-				{ danger: true, okText: '切换并重启' }, 'os', 'android', '正在切换到原厂系统…');
-		};
 		q('btn-default').onclick = function() {
 			return confirmAction(this, '设为默认启动',
 				'以后开机默认进入 OpenWrt；启动失败仍保留 Android 回退。现在不会重启。',
 				{ okText: '确定' }, 'os', 'linux-default');
 		};
 		q('btn-android').onclick = function() {
+			if (self.lastInfo?.boot?.system_switch === 'u30pro') {
+				return confirmAction(this, '切换到原厂系统并重启',
+					'设备将重启进入原厂 Android，此管理页与网络连接会断开。\n' +
+					'要回到 OpenWrt，请通过 USB 连接电脑，在 OpenWrt 安装器中选择「临时启动已安装的 OpenWrt」。',
+					{ danger: true, okText: '切换并重启' }, 'os', 'android', '正在切换到原厂系统…');
+			}
 			return confirmAction(this, '切换到 Android 系统',
 				'下次启动将进入 Android 并立即重启，此管理页面与蜂窝共享都会断开。\n' +
 				'回到 OpenWrt：在 Android 上执行 mu300-next-boot linux 后重启；\n' +
@@ -491,28 +485,42 @@ return view.extend({
 	paintBoot: function(info) {
 		var boot = info.boot || {}, isPro = boot.system_switch === 'u30pro';
 		var dualBoot = !!(info.capabilities && info.capabilities.dualboot);
+		var ready = dualBoot && !!boot.can_set_default;
 		var notice = M.v('boot-notice'), setDefault = M.v('btn-default'), android = M.v('btn-android');
+		var proDefault = M.v('btn-pro-default');
 		notice.hidden = isPro || boot.temporary !== true;
 		notice.style.display = notice.hidden ? 'none' : 'flex';
 		setDefault.disabled = !boot.can_set_default || !!this._quickPending;
 		setDefault.title = boot.can_set_default ? '' : M.translate('当前启动镜像不支持设置默认启动');
-		android.style.display = !isPro && dualBoot ? '' : 'none';
+		android.style.display = dualBoot ? '' : 'none';
+		android.disabled = isPro && !ready;
+		android.title = android.disabled ? M.translate('启动控制不可用') : '';
 
 		M.v('boot-switch').hidden = !isPro;
+		proDefault.hidden = !isPro;
 		if (!isPro) return;
 		var name = function(target) {
 			return target === 'linux' ? 'OpenWrt' : M.translate(target === 'android' ? '原厂 Android' : '未确认');
 		};
-		M.set('boot-current', 'OpenWrt');
-		M.set('boot-default', name(boot.default));
-		M.set('boot-next', name(boot.next));
-		var ready = dualBoot && boot.can_set_default;
-		var alreadyDefault = boot.default === 'linux' && boot.next === 'linux';
-		var proDefault = M.v('btn-pro-default'), proAndroid = M.v('btn-pro-android');
+		var defaultIsCurrent = boot.default === 'linux', nextIsCurrent = boot.next === 'linux';
+		var defaultName = name(boot.default), nextName = name(boot.next);
+		var sameTarget = defaultName === nextName;
+		var currentLabel = ['当前系统'];
+		if (defaultIsCurrent) currentLabel.push('默认启动');
+		if (nextIsCurrent) currentLabel.push('下次启动');
+		M.set('boot-current-label', M.translate(currentLabel.join(' / ')));
+		M.set('boot-default-label', M.translate(sameTarget ? '默认启动 / 下次启动' : '默认启动'));
+		M.set('boot-default', defaultName);
+		M.set('boot-next', nextName);
+		M.v('boot-default-row').hidden = defaultIsCurrent;
+		M.v('boot-next-row').hidden = nextIsCurrent || sameTarget;
+		M.set('boot-temporary', M.translate(boot.temporary === true ? '是' : boot.temporary === false ? '否' : '未确认'));
+		M.set('boot-control', M.translate(ready ? '可写入' : '不可用'));
+		var alreadyDefault = defaultIsCurrent && nextIsCurrent;
+		M.set('boot-default-action', M.translate(alreadyDefault ? 'OpenWrt 已设为默认启动' : '设为默认启动'));
+		proDefault.classList.toggle('on', alreadyDefault);
 		proDefault.disabled = !ready || alreadyDefault;
-		proAndroid.disabled = !ready;
-		proDefault.title = M.translate(!ready ? '启动控制不可用' : alreadyDefault ? 'OpenWrt 已设为默认启动' : '');
-		proAndroid.title = ready ? '' : M.translate('启动控制不可用');
+		proDefault.title = ready ? '' : M.translate('启动控制不可用');
 	},
 
 	update: function(st) {

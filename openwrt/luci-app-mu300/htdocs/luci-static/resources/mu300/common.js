@@ -1132,10 +1132,12 @@ var DASH_I18N = {
  '设为默认启动': ['Make default boot', 'Varsayılan başlatma yap'],
  '以后开机默认进入 OpenWrt；启动失败仍保留 Android 回退。现在不会重启。': ['Future boots will use OpenWrt, with Android fallback if startup fails. No reboot now.', 'Sonraki açılışlar OpenWrt kullanır; başarısızlıkta Android geri dönüşü korunur. Şimdi yeniden başlatılmaz.'],
  '当前启动镜像不支持设置默认启动': ['This boot image cannot set a default boot', 'Bu açılış imajı varsayılan başlatmayı ayarlayamaz'],
-	'系统切换': ['Switch system', 'Sistem değiştir'],
 	'当前系统': ['Current system', 'Çalışan sistem'],
 	'默认启动': ['Default boot', 'Varsayılan açılış'],
 	'下次启动': ['Next boot', 'Sonraki açılış'],
+	'临时启动': ['Temporary boot', 'Geçici açılış'],
+	'启动控制': ['Boot control', 'Açılış kontrolü'],
+	'可写入': ['Writable', 'Yazılabilir'],
 	'未确认': ['Unconfirmed', 'Doğrulanmadı'],
 	'原厂 Android': ['Stock Android', 'Orijinal Android'],
 	'设 OpenWrt 为默认启动': ['Make OpenWrt the default', 'OpenWrt’yi varsayılan yap'],
@@ -1884,6 +1886,10 @@ html.mud-bootstrap-theme{--surface:var(--background-color-high);--surface-sunken
 .mud-btn.warn{border-color:color-mix(in oklab,var(--danger,#E25555) 55%,transparent);color:var(--danger,#E25555)}
 .mud-btn[disabled]{opacity:.4;pointer-events:none}
 .mud-ctl{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:7px}
+.mud-boot-default{grid-column:1}
+.mud-boot-default.on[disabled]{opacity:1}
+.mud-boot-rows{margin-top:7px}
+.mud-boot-default[hidden],.mud-boot-rows[hidden],.mud-boot-rows .mud-r[hidden]{display:none}
 .mud-note{font-size:.72rem;color:var(--text-subtle,var(--text-light,#999));margin-top:7px}
 .mud-table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:.8rem}
 .mud-table th{font-weight:500;color:var(--text-muted,var(--text-light,#777));text-align:right;padding:1px 4px;border-bottom:1px solid var(--hairline,var(--border,#ddd));font-size:.72rem;position:sticky;top:0;background:var(--surface,var(--background-alt,var(--background,#fff)))}

@@ -17,7 +17,7 @@ jobs:
       - name: Build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential clang llvm lld cmake ninja-build pkg-config bc bison flex libelf-dev libssl-dev libncurses-dev rsync cpio xz-utils zstd lz4 patch curl ca-certificates openssl file kmod qemu-user-static binfmt-support
+          sudo apt-get install -y build-essential clang llvm lld cmake ninja-build pkg-config bc bison flex libelf-dev libssl-dev libncurses-dev rsync cpio xz-utils zstd lz4 patch curl ca-certificates openssl file kmod qemu-user-static binfmt-support g++-aarch64-linux-gnu binutils-aarch64-linux-gnu
           sudo update-binfmts --enable qemu-aarch64
       - name: Build from pinned public inputs
         run: sudo python3 tools/build-release.py build --workspace "$RUNNER_TEMP/u30pro-build" --jobs 4 --label public-ci

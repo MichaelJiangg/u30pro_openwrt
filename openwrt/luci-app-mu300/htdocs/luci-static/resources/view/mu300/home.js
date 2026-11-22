@@ -154,6 +154,20 @@ return view.extend({
   <div style="flex:1;min-width:12rem"><b>当前为临时启动 OpenWrt</b><div>是否将 OpenWrt 设为默认启动？不会立即重启或断网。</div></div>
   <button class="mud-btn" id="mud-btn-default">设为默认启动</button>
 </div>
+<div class="mud-card mud-body" id="mud-boot-switch" hidden>
+  <section class="mud-sec" aria-labelledby="mud-boot-title">
+    <h3 id="mud-boot-title">系统切换</h3>
+    <div class="mud-kpis">
+      <div class="mud-kpi"><b id="mud-boot-current">OpenWrt</b><span>当前系统</span></div>
+      <div class="mud-kpi"><b id="mud-boot-default">未确认</b><span>默认启动</span></div>
+      <div class="mud-kpi"><b id="mud-boot-next">未确认</b><span>下次启动</span></div>
+    </div>
+    <div class="mud-ctl" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
+      <button type="button" class="mud-btn" id="mud-btn-pro-default" disabled>设 OpenWrt 为默认启动</button>
+      <button type="button" class="mud-btn warn" id="mud-btn-pro-android" disabled>切换到原厂系统并重启</button>
+    </div>
+  </section>
+</div>
 <div class="mud-card mud-body">
 
 <div class="mud-sec">
@@ -377,6 +391,17 @@ return view.extend({
 				return act(op, null, op === 'poweroff' ? '正在关机…' : '正在重启…', btn);
 			}).finally(function() { self._quickPending = false; });
 		};
+		q('btn-pro-default').onclick = function() {
+			return confirmAction(this, '设 OpenWrt 为默认启动',
+				'以后开机默认进入 OpenWrt；启动失败仍保留 Android 回退。现在不会重启。',
+				{ okText: '确定' }, 'os', 'linux-default');
+		};
+		q('btn-pro-android').onclick = function() {
+			return confirmAction(this, '切换到原厂系统并重启',
+				'设备将重启进入原厂 Android，此管理页与网络连接会断开。\n' +
+				'要回到 OpenWrt，请通过 USB 连接电脑，在 OpenWrt 安装器中选择「临时启动已安装的 OpenWrt」。',
+				{ danger: true, okText: '切换并重启' }, 'os', 'android', '正在切换到原厂系统…');
+		};
 		q('btn-default').onclick = function() {
 			return confirmAction(this, '设为默认启动',
 				'以后开机默认进入 OpenWrt；启动失败仍保留 Android 回退。现在不会重启。',
@@ -461,6 +486,33 @@ return view.extend({
 	repaintNeigh: function() {
 		var el = M.v('neigh');
 		if (el && this.lastCell) el.innerHTML = M.neighborRows(this.lastCell, this.lockedCell);
+	},
+
+	paintBoot: function(info) {
+		var boot = info.boot || {}, isPro = boot.system_switch === 'u30pro';
+		var dualBoot = !!(info.capabilities && info.capabilities.dualboot);
+		var notice = M.v('boot-notice'), setDefault = M.v('btn-default'), android = M.v('btn-android');
+		notice.hidden = isPro || boot.temporary !== true;
+		notice.style.display = notice.hidden ? 'none' : 'flex';
+		setDefault.disabled = !boot.can_set_default || !!this._quickPending;
+		setDefault.title = boot.can_set_default ? '' : M.translate('当前启动镜像不支持设置默认启动');
+		android.style.display = !isPro && dualBoot ? '' : 'none';
+
+		M.v('boot-switch').hidden = !isPro;
+		if (!isPro) return;
+		var name = function(target) {
+			return target === 'linux' ? 'OpenWrt' : M.translate(target === 'android' ? '原厂 Android' : '未确认');
+		};
+		M.set('boot-current', 'OpenWrt');
+		M.set('boot-default', name(boot.default));
+		M.set('boot-next', name(boot.next));
+		var ready = dualBoot && boot.can_set_default;
+		var alreadyDefault = boot.default === 'linux' && boot.next === 'linux';
+		var proDefault = M.v('btn-pro-default'), proAndroid = M.v('btn-pro-android');
+		proDefault.disabled = !ready || alreadyDefault;
+		proAndroid.disabled = !ready;
+		proDefault.title = M.translate(!ready ? '启动控制不可用' : alreadyDefault ? 'OpenWrt 已设为默认启动' : '');
+		proAndroid.title = ready ? '' : M.translate('启动控制不可用');
 	},
 
 	update: function(st) {
@@ -711,17 +763,7 @@ return view.extend({
 		M.set('model', i.model || '--');
 		M.set('fwos', i.fw || '--');
 		M.set('modem', (i.modem && i.modem.alive ? '在线' : '无应答') + (i.modem && i.modem.atd ? '' : ' · AT 适配器不可用'));
-		var androidBtn = M.v('btn-android');
-		var boot = i.boot || {}, notice = M.v('boot-notice'), setDefault = M.v('btn-default');
-		if (notice) {
-			notice.hidden = boot.temporary !== true;
-			notice.style.display = notice.hidden ? 'none' : 'flex';
-		}
-		if (setDefault) {
-			setDefault.disabled = !boot.can_set_default || !!this._quickPending;
-			setDefault.title = boot.can_set_default ? '' : M.translate('当前启动镜像不支持设置默认启动');
-		}
-		if (androidBtn) androidBtn.style.display = i.capabilities && i.capabilities.dualboot ? '' : 'none';
+		this.paintBoot(i);
 
 		var b;
 		b = M.v('btn-data'); b.className = 'mud-btn' + (w.up ? ' on' : ''); b.textContent = '数据连接';
